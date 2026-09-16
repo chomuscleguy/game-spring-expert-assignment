@@ -1,0 +1,12 @@
+.git
+.gitignore
+.idea
+.gradle
+build/
+out/
+*.iml
+.env
+.env.example
+Dockerfile
+docker-compose.y*ml
+README.md

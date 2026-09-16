@@ -1,3 +1,10 @@
 /gradlew text eol=lf
 *.bat text eol=crlf
 *.jar binary
+
+# 도커 관련 파일은 LF 고정 (CRLF 시 .env 값 끝에 \r 이 섞여 접속 실패)
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+.env.example text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
