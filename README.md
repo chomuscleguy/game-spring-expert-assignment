@@ -167,3 +167,119 @@ Database version: 8.0.46
 ```
 
 </details>
+
+**Lv2. SQL을 JPA 인덱스로 표현하기**
+- [x] SQL을 직접 실행하는 대신 `@Table`과 `@Index`로 인덱스를 선언합니다. 테이블 이름, 인덱스 이름과 컬럼 순서는 제공된 SQL과 같아야 합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 요구된 SQL
+
+```sql
+CREATE INDEX idx_chat_world_created_at ON chat_messages(world_id, created_at);
+```
+
+---
+
+2. 인덱스 선언 (`@Table` + `@Index`)
+* SQL을 직접 실행하지 않고 엔티티 매핑으로 선언하여, 스키마가 엔티티 정의를 따라가도록 구성
+* `columnList`의 컬럼 순서가 곧 복합 인덱스의 순서 — 요구된 SQL과 동일하게 `world_id`, `created_at` 순으로 지정
+
+```java
+@Entity
+@Table(
+        name = "chat_messages",
+        indexes = {
+                @Index(
+                        name = "idx_chat_world_created_at",
+                        columnList = "world_id, created_at"
+                )
+        }
+)
+public class ChatMessage {
+```
+
+`world_id`는 `@JoinColumn(name = "world_id")`, `created_at`은 `createdAt` 필드가 스프링 기본 네이밍 전략으로 매핑된 실제 컬럼명입니다.
+
+ [ChatMessage.java 바로가기](./src/main/java/com/gameexpert/chat/entity/ChatMessage.java)
+
+---
+
+3. 스키마 자동 생성 설정
+MySQL 등 외부 DB에서는 `spring.jpa.hibernate.ddl-auto` 기본값이 `none`이라 Hibernate가 스키마를 생성하지 않습니다.
+
+엔티티에 선언한 인덱스가 실제 DB에 반영되도록 `update`로 설정했습니다.
+
+```properties
+spring.jpa.hibernate.ddl-auto=update
+```
+
+ [application.properties 바로가기](./src/main/resources/application.properties)
+
+</details>
+
+- [x] 확인: 서버를 실행하고 인덱스가 실제 DB에 생성됐는지 확인합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+## docker의 MySQL에 접속
+docker exec -it expert-assignment-mysql mysql -u root -p
+```
+
+```sql
+USE expert_assignment_db;
+SHOW INDEX FROM chat_messages;
+```
+
+```Bash
++---------------+------------+---------------------------+--------------+-------------+
+| Table         | Non_unique | Key_name                  | Seq_in_index | Column_name |
++---------------+------------+---------------------------+--------------+-------------+
+| chat_messages |          0 | PRIMARY                   |            1 | id          |
+| chat_messages |          1 | idx_chat_world_created_at |            1 | world_id    |
+| chat_messages |          1 | idx_chat_world_created_at |            2 | created_at  |
++---------------+------------+---------------------------+--------------+-------------+
+```
+
+`idx_chat_world_created_at`이 `Seq_in_index` 1 → `world_id`, 2 → `created_at` 순으로 생성되어 요구된 SQL과 일치합니다.
+
+`Non_unique = 1`은 유니크 인덱스가 아니라는 의미로 `CREATE INDEX`와 동일하며, `PRIMARY`는 `@Id`가 생성한 기본키입니다.
+
+</details>
+
+- [x] 확인: 인덱스가 없으면 시작 검사에서 서버 실행을 중단합니다. `CHAT_HISTORY_INDEX_MISSING` 오류가 사라지고 서버가 정상 실행되어 `http://localhost:8080/`에서 첫 화면이 열립니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+인덱스 선언 전에는 엔진의 시작 검사(`ChatHistoryIndexRequirement`)가 기동을 중단시켰습니다.
+
+```Bash
+Caused by: java.lang.IllegalStateException: CHAT_HISTORY_INDEX_MISSING:
+chat_messages 테이블에 idx_chat_world_created_at(world_id, created_at) 인덱스가 필요합니다.
+Lv 2의 @Table 인덱스 설정을 확인하세요.
+```
+
+---
+
+인덱스 선언 후 정상 기동을 확인합니다.
+
+```Bash
+docker compose logs app --tail 30
+```
+
+```Bash
+Tomcat started on port 8080 (http)
+Started GameExpertApplication
+```
+
+---
+
+`http://localhost:8080/` 접속 시 첫 화면이 정상적으로 열립니다.
+
+![Lv2 첫 화면](./img/lv2_img.png)
+
+</details>
