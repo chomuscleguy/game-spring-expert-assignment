@@ -1,15 +1,13 @@
 package com.gameexpert.world.service;
 
-import java.util.List;
-
 import com.gameexpert.common.ConflictException;
-import com.gameexpert.common.ServiceUnavailableException;
-import com.gameexpert.world.WorldBaselineReadiness;
 import com.gameexpert.common.ForbiddenException;
 import com.gameexpert.common.NotFoundException;
+import com.gameexpert.common.ServiceUnavailableException;
 import com.gameexpert.engine.Difficulty;
 import com.gameexpert.player.entity.Player;
 import com.gameexpert.player.repository.PlayerRepository;
+import com.gameexpert.world.WorldBaselineReadiness;
 import com.gameexpert.world.dto.ConditionalWorldDeleteRequest;
 import com.gameexpert.world.dto.CreateWorldRequest;
 import com.gameexpert.world.dto.WorldSummaryResponse;
@@ -18,6 +16,8 @@ import com.gameexpert.world.repository.WorldRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -69,11 +69,16 @@ public class WorldService {
         if (!baselineReadiness.isReady()) {
             throw new ServiceUnavailableException("WORLD_BASELINE_INITIALIZING");
         }
-        // TODO Lv 4: duringCreation() 안에서 기본 월드 3개 제한을 검사하고 createPreparedWorld(request)를 호출합니다.
-        throw new UnsupportedOperationException("Lv 4: 월드 생성을 구현하세요.");
+
+        return worldOperations.duringCreation(() -> {
+            if (worldRepository.countRootWorlds()>=MAX_WORLDS) {
+                throw new ConflictException("WORLD_LIMIT_REACHED");
+            }
+
+            return createPreparedWorld(request);
+        });
     }
 
-    // 제공 코드: 생성 잠금 안에서 호출하며 엔진에 전달할 초기 월드 정보를 준비합니다.
     private CommittedWorldCreation createPreparedWorld(CreateWorldRequest request) {
         String owner = request.getNickname() == null ? null : request.getNickname().trim();
         worldOperations.validateSeed(owner, request.getDebugSeed());

@@ -388,3 +388,181 @@ build/reports/tests/test/index.html
 ![Lv3 닉네임 적용](./img/lv3_img.png)
 
 </details>
+
+**Lv4. 월드 생성**
+- [x] `worldOperations.duringCreation()`에 람다를 전달하고 그 결과를 반환합니다.
+- [x] 람다 안에서 `worldRepository.countRootWorlds()`가 `MAX_WORLDS` 이상이면 `ConflictException("WORLD_LIMIT_REACHED")`을 던지고, 제한을 넘지 않으면 `createPreparedWorld(request)`의 결과를 반환합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 생성 잠금 안에서 개수 확인과 저장을 함께 수행
+* `duringCreation()`이 잡아주는 생성 잠금 안에서 개수 확인과 월드 생성이 모두 이루어지도록 람다 내부에 배치
+* 잠금 밖에서 개수를 세면 동시 요청 시 두 요청이 모두 제한을 통과해 월드가 4개가 될 수 있음
+
+```java
+@Transactional
+public CommittedWorldCreation createWorld(CreateWorldRequest request) {
+    if (!baselineReadiness.isReady()) {
+        throw new ServiceUnavailableException("WORLD_BASELINE_INITIALIZING");
+    }
+
+    return worldOperations.duringCreation(() -> {
+        if (worldRepository.countRootWorlds() >= MAX_WORLDS) {
+            throw new ConflictException("WORLD_LIMIT_REACHED");
+        }
+
+        return createPreparedWorld(request);
+    });
+}
+```
+
+ [WorldService.java 바로가기](./src/main/java/com/gameexpert/world/service/WorldService.java)
+
+---
+
+2. 개수 제한 경계
+`MAX_WORLDS`는 3이며, 비교 연산자는 `>=`를 사용합니다. `>`를 쓰면 월드가 3개일 때 4번째 생성이 허용됩니다.
+
+| 기존 월드 수 | 판정 |
+|---|---|
+| 0 | 생성 |
+| 2 | 생성 (3번째) |
+| 3 | `WORLD_LIMIT_REACHED` |
+| 4 | `WORLD_LIMIT_REACHED` |
+
+</details>
+
+- [x] 테스트 확인: `WorldCreationTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+실행 결과는 Gradle이 생성하는 HTML 리포트에서 테스트별로 확인할 수 있습니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 새 월드가 목록에 표시되고 서버를 재시작해도 남아 있습니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+월드를 생성하면 목록에 이름·난이도·접속자 수·시드가 표시되고, 상단 카운터가 `내 월드 (1/3)`으로 갱신됩니다.
+
+![Lv4 월드 생성](./img/lv4_img.png)
+
+월드 정보는 MySQL 컨테이너의 볼륨에 저장되므로 애플리케이션을 재시작해도 유지됩니다.
+
+```Bash
+docker compose restart app
+```
+
+</details>
+
+**Lv5. 채팅 저장과 내역 조회**
+- [x] `saveMessage()`에서 `worldId`로 월드를 조회하고, 없으면 `NotFoundException`으로 `WORLD_NOT_FOUND` 에러를 던집니다.
+- [x] 조회한 월드와 전달받은 닉네임, 내용으로 `ChatMessage`를 만들어 `chatMessageRepository.save()`로 저장하고, 제공된 `savedResponse(worldId, saved)`의 결과를 반환합니다.
+- [x] 최근 채팅을 대화 순서대로 반환합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 채팅 저장 (`saveMessage`)
+* 월드 조회 실패를 `Optional.orElseThrow`로 처리하여 존재하지 않는 월드에는 저장하지 않음
+* 저장된 엔티티를 `savedResponse`에 전달 — `@CreationTimestamp`가 채운 `createdAt`이 응답에 포함됨
+
+```java
+@Transactional
+public ChatMessageResponse saveMessage(Long worldId, String sender, String content) {
+    World world = worldRepository.findById(worldId)
+            .orElseThrow(() -> new NotFoundException("WORLD_NOT_FOUND"));
+    ChatMessage chat = chatMessageRepository.save(new ChatMessage(world, sender, content));
+    return savedResponse(worldId, chat);
+}
+```
+
+---
+
+2. 최근 채팅 조회 (`getRecentMessages`)
+* **최신 N건을 고른 뒤 대화 순서로 뒤집는** 방식 — 오래된 것부터 읽으면 최신 N건을 알 수 없으므로 정렬은 내림차순으로 조회
+* `limit`은 1 이상 `MAX_LIMIT`(100) 이하로 보정
+
+```java
+int capped = Math.min(Math.max(limit, 1), MAX_LIMIT);
+
+List<ChatMessage> recent = chatMessageRepository
+        .findByWorldIdOrderByCreatedAtDescIdDesc(worldId, PageRequest.of(0, capped));
+
+Collections.reverse(recent);
+```
+
+정렬 조건에 `id DESC`를 함께 둔 이유는 **같은 시각에 저장된 메시지의 순서를 고정**하기 위해서입니다. 뒤집은 뒤 id 오름차순, 즉 저장된 순서가 됩니다.
+
+| 단계 | 결과 |
+|---|---|
+| `createdAt DESC, id DESC`로 조회 | 최신 → 과거, 동시각은 나중 저장분이 앞 |
+| `Collections.reverse` | 과거 → 최신, 동시각은 먼저 저장분이 앞 |
+
+`createdAt`만으로 정렬하면 같은 시각 메시지의 순서가 보장되지 않습니다.
+
+ [ChatService.java 바로가기](./src/main/java/com/gameexpert/chat/service/ChatService.java)
+
+</details>
+
+- [x] 테스트 확인: `ChatServiceTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+실행 결과는 Gradle이 생성하는 HTML 리포트에서 테스트별로 확인할 수 있습니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 저장된 내용과 반환된 목록의 건수 및 순서를 확인합니다. 이 검사는 게임 서버나 REST API 실행 없이 수행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+`ChatServiceTest`가 H2 인메모리 데이터베이스를 직접 구성하므로, 컨테이너나 REST API를 실행하지 않고 확인할 수 있습니다.
+
+`selectsLatestThenReturnsAscendingAndIsolatesWorlds`의 `assertThat(messages)` 줄에 중단점을 걸고 반환 목록을 확인했습니다.
+
+```Bash
+messages = {ImmutableCollections$ListN@11242}  size = 3
+ 0 = {ChatMessageResponse@15611}
+  sender = "Alice"
+  content = "tie-first"
+  createdAt = {LocalDateTime@15616} "2026-01-01T12:00"
+ 1 = {ChatMessageResponse@15612}
+  sender = "Alice"
+  content = "tie-last"
+  createdAt = {LocalDateTime@15619} "2026-01-01T12:00"
+ 2 = {ChatMessageResponse@15613}
+  sender = "Alice"
+  content = "newer"
+  createdAt = {LocalDateTime@15622} "2026-01-01T12:00:01"
+```
+
+**건수** — `limit`이 3이므로 `size = 3`. 더 오래된 메시지와 다른 월드의 메시지는 제외됩니다.
+
+**순서** — `12:00`으로 시각이 같은 `tie-first`와 `tie-last`가 저장된 순서대로 앞에 오고, 가장 최신인 `12:00:01`의 `newer`가 마지막에 위치합니다. 과거 → 최신의 대화 순서입니다.
+
+**저장 내용** — 각 항목의 `sender`, `content`, `createdAt`이 저장 시점의 값 그대로 담겨 있습니다.
+
+</details>

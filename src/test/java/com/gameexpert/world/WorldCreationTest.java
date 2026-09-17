@@ -54,25 +54,25 @@ class WorldCreationTest {
         });
     }
 
-    // @Test
+    @Test
     void createsFirstWorld() {
         worldCount = 0;
         assertWorldCreated();
     }
 
-    // @Test
+    @Test
     void allowsThirdWorld() {
         worldCount = 2;
         assertWorldCreated();
     }
 
-    // @Test
+    @Test
     void rejectsWhenThreeWorldsExist() {
         worldCount = 3;
         assertLimitRejected();
     }
 
-    // @Test
+    @Test
     void rejectsWhenLimitAlreadyExceeded() {
         worldCount = 4;
         assertLimitRejected();

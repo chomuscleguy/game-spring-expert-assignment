@@ -92,7 +92,7 @@ class ChatServiceTest {
         });
     }
 
-    // @Test
+    @Test
     void savesMessageAndReturnsStoredFields() {
         ChatMessageResponse response = transactions.execute(status -> service.saveMessage(world.getId(), "Alice", "안녕하세요"));
         List<ChatMessage> saved = transactions.execute(status -> entityManager
@@ -106,7 +106,7 @@ class ChatServiceTest {
         assertThat(response.getCreatedAt()).isNotNull().isEqualTo(saved.getFirst().getCreatedAt());
     }
 
-    // @Test
+    @Test
     void selectsLatestThenReturnsAscendingAndIsolatesWorlds() {
         insert(world, "newer", TIME.plusSeconds(1));
         insert(world, "old", TIME.minusSeconds(1));
@@ -118,7 +118,7 @@ class ChatServiceTest {
                 .containsExactly("tie-first", "tie-last", "newer");
     }
 
-    // @Test
+    @Test
     void appliesLimitBoundsAndReturnsEmptyWhenNoMessages() {
         List<ChatMessageResponse> empty = transactions.execute(status -> service.getRecentMessages(world.getId(), 10));
         assertThat(empty).isEmpty();
@@ -131,7 +131,7 @@ class ChatServiceTest {
         assertThat(maximum.getLast().getContent()).isEqualTo("message-105");
     }
 
-    // @Test
+    @Test
     void refusesToStoreInMissingWorld() {
         assertThatThrownBy(() -> transactions.execute(status -> service.saveMessage(-1L, "Alice", "hello")))
                 .isInstanceOf(NotFoundException.class);
