@@ -17,7 +17,7 @@ import static org.mockito.Mockito.*;
 
 class PlayerRegistrationTest {
 
-    // @Test
+    @Test
     void acceptsValidNicknames() {
         try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
             Validator validator = factory.getValidator();
@@ -27,7 +27,7 @@ class PlayerRegistrationTest {
         }
     }
 
-    // @Test
+    @Test
     void rejectsInvalidNicknames() {
         try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
             Validator validator = factory.getValidator();
@@ -38,7 +38,7 @@ class PlayerRegistrationTest {
         }
     }
 
-    // @Test
+    @Test
     void savesNewPlayer() {
         PlayerRepository repository = mock(PlayerRepository.class);
         PlayerService service = new PlayerService(repository);
@@ -50,7 +50,7 @@ class PlayerRegistrationTest {
         assertEquals("player_1", saved.getValue().getNickname());
     }
 
-    // @Test
+    @Test
     void rejectsDuplicateWithoutSaving() {
         PlayerRepository repository = mock(PlayerRepository.class);
         when(repository.existsByNickname("player_1")).thenReturn(true);

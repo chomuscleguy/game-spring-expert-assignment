@@ -41,7 +41,7 @@ class PlayerApiTest {
         validator.close();
     }
 
-    // @Test
+    @Test
     void createsPlayerFromJsonAndReturnsCreatedWithoutBody() throws Exception {
         mockMvc.perform(post("/players")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -54,7 +54,7 @@ class PlayerApiTest {
         assertEquals("player_1", request.getValue().getNickname());
     }
 
-    // @Test
+    @Test
     void rejectsInvalidNicknameBeforeCallingService() throws Exception {
         mockMvc.perform(post("/players")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -64,7 +64,7 @@ class PlayerApiTest {
         verifyNoInteractions(playerService);
     }
 
-    // @Test
+    @Test
     void rejectsMissingNicknameBeforeCallingService() throws Exception {
         mockMvc.perform(post("/players")
                         .contentType(MediaType.APPLICATION_JSON)

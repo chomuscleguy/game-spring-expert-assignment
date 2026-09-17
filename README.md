@@ -283,3 +283,108 @@ Started GameExpertApplication
 ![Lv2 첫 화면](./img/lv2_img.png)
 
 </details>
+
+**Lv3. 요청 검증과 DTO: 플레이어 등록**
+- [x] API 명세에 맞게 플레이어 등록 Controller, 요청 DTO와 서비스를 구현합니다. 닉네임은 비어 있지 않은 2~12글자이며, 영문 대소문자와 숫자, 밑줄만 허용합니다.
+- [x] 이미 등록된 닉네임이면 `ConflictException`으로 `DUPLICATE_NICKNAME` 에러를 던집니다.
+- [x] Controller의 요청 매핑, JSON 본문 바인딩, DTO 검증과 성공 응답을 명세대로 구현합니다.
+- [x] 중복이 아니면 제공된 `savePlayer(new Player(request.getNickname()))`로 저장합니다. 성공 응답은 본문 없는 `201`입니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 요청 DTO와 검증 규칙 (`CreatePlayerRequest`)
+* 닉네임 제약을 Bean Validation 애노테이션으로 선언 — 검증 책임을 DTO에 두어 Controller와 Service는 검증을 신경 쓰지 않음
+
+```java
+@NotBlank
+@Size(min = 2, max = 12)
+@Pattern(regexp = "^[a-zA-Z0-9_]+$")
+private final String nickname;
+```
+
+| 애노테이션 | 거르는 값 |
+|---|---|
+| `@NotBlank` | `null`, `""`, 공백만 있는 값 |
+| `@Size(min = 2, max = 12)` | `"A"`, 13글자 이상 |
+| `@Pattern` | `한글`, `ab cd`, `ab-cd`, `ab!` |
+
+`@Size`와 `@Pattern`은 값이 `null`이면 검사를 건너뛰므로, `null`을 거르려면 `@NotBlank`가 반드시 필요합니다.
+
+ [CreatePlayerRequest.java 바로가기](./src/main/java/com/gameexpert/player/dto/CreatePlayerRequest.java)
+
+---
+
+2. Controller (`PlayerController`)
+* `@RequestBody`로 JSON 본문을 DTO에 바인딩
+* `@Valid`로 DTO 검증을 수행 — 실패 시 서비스를 호출하지 않고 `400` 반환
+* 성공 시 본문 없이 `201 Created` 반환
+
+```java
+@PostMapping("/players")
+public ResponseEntity<Void> create(@Valid @RequestBody CreatePlayerRequest request) {
+    playerService.createPlayer(request);
+    return ResponseEntity.status(HttpStatus.CREATED).build();
+}
+```
+
+`ResponseEntity.build()`는 본문 없이 상태 코드만 응답합니다.
+
+ [PlayerController.java 바로가기](./src/main/java/com/gameexpert/player/controller/PlayerController.java)
+
+---
+
+3. Service (`PlayerService`)
+* 저장 전 `existsByNickname`으로 중복을 확인하고, 중복이면 저장을 시도하지 않고 `ConflictException` 발생
+* 동시 등록으로 제약 위반이 발생하는 경우는 제공된 `savePlayer`가 처리
+
+```java
+@Transactional
+public void createPlayer(CreatePlayerRequest request) {
+    if (playerRepository.existsByNickname(request.getNickname())) {
+        throw new ConflictException("DUPLICATE_NICKNAME");
+    }
+    savePlayer(new Player(request.getNickname()));
+}
+```
+
+두 검사는 서로 다른 상황을 담당합니다.
+
+| 위치 | 담당하는 상황 |
+|---|---|
+| `existsByNickname` 사전 검사 | 이미 등록된 닉네임으로 들어온 일반적인 요청 |
+| `savePlayer`의 `catch` | 두 요청이 동시에 사전 검사를 통과한 뒤 발생하는 제약 위반 |
+
+사전 검사와 저장 사이에는 틈이 있어, 동시 요청은 양쪽 모두 "중복 없음"으로 판정될 수 있습니다. 이때 뒤늦은 INSERT가 유니크 제약에 걸리며, 이를 `catch`가 `409`로 변환합니다.
+
+ [PlayerService.java 바로가기](./src/main/java/com/gameexpert/player/service/PlayerService.java)
+
+</details>
+
+- [x] 테스트 확인: `PlayerRegistrationTest.java`와 `PlayerApiTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+실행 결과는 Gradle이 생성하는 HTML 리포트에서 테스트별로 확인할 수 있습니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 게임 화면에서 닉네임을 적용할 수 있습니다. 잘못된 닉네임이나 이미 등록된 닉네임은 새로 저장되지 않습니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+`http://localhost:8080/`에서 닉네임을 입력하고 적용하면 등록이 완료되어 버튼이 `수정`으로 바뀌고 월드 목록이 표시됩니다.
+
+![Lv3 닉네임 적용](./img/lv3_img.png)
+
+</details>
