@@ -1,6 +1,6 @@
 ## 필수 기능 구현
 
-**Lv1. Docker로 MySQL과 Redis 설정**
+### Lv1. Docker로 MySQL과 Redis 설정
 - [x] Docker로 MySQL과 Redis를 실행합니다.
 - [x] Spring 애플리케이션의 환경 변수를 설정합니다.
 
@@ -168,7 +168,7 @@ Database version: 8.0.46
 
 </details>
 
-**Lv2. SQL을 JPA 인덱스로 표현하기**
+### Lv2. SQL을 JPA 인덱스로 표현하기
 - [x] SQL을 직접 실행하는 대신 `@Table`과 `@Index`로 인덱스를 선언합니다. 테이블 이름, 인덱스 이름과 컬럼 순서는 제공된 SQL과 같아야 합니다.
 
 <details>
@@ -284,7 +284,7 @@ Started GameExpertApplication
 
 </details>
 
-**Lv3. 요청 검증과 DTO: 플레이어 등록**
+### Lv3. 요청 검증과 DTO: 플레이어 등록
 - [x] API 명세에 맞게 플레이어 등록 Controller, 요청 DTO와 서비스를 구현합니다. 닉네임은 비어 있지 않은 2~12글자이며, 영문 대소문자와 숫자, 밑줄만 허용합니다.
 - [x] 이미 등록된 닉네임이면 `ConflictException`으로 `DUPLICATE_NICKNAME` 에러를 던집니다.
 - [x] Controller의 요청 매핑, JSON 본문 바인딩, DTO 검증과 성공 응답을 명세대로 구현합니다.
@@ -389,7 +389,7 @@ build/reports/tests/test/index.html
 
 </details>
 
-**Lv4. 월드 생성**
+### Lv4. 월드 생성
 - [x] `worldOperations.duringCreation()`에 람다를 전달하고 그 결과를 반환합니다.
 - [x] 람다 안에서 `worldRepository.countRootWorlds()`가 `MAX_WORLDS` 이상이면 `ConflictException("WORLD_LIMIT_REACHED")`을 던지고, 제한을 넘지 않으면 `createPreparedWorld(request)`의 결과를 반환합니다.
 
@@ -467,7 +467,7 @@ docker compose restart app
 
 </details>
 
-**Lv5. 채팅 저장과 내역 조회**
+### Lv5. 채팅 저장과 내역 조회
 - [x] `saveMessage()`에서 `worldId`로 월드를 조회하고, 없으면 `NotFoundException`으로 `WORLD_NOT_FOUND` 에러를 던집니다.
 - [x] 조회한 월드와 전달받은 닉네임, 내용으로 `ChatMessage`를 만들어 `chatMessageRepository.save()`로 저장하고, 제공된 `savedResponse(worldId, saved)`의 결과를 반환합니다.
 - [x] 최근 채팅을 대화 순서대로 반환합니다.
@@ -567,7 +567,7 @@ messages = {ImmutableCollections$ListN@11242}  size = 3
 
 </details>
 
-**Lv6. 최근 채팅 조회 API 구현**
+### Lv6. 최근 채팅 조회 API 구현
 - [x] 요청 경로, HTTP 메서드, 경로 변수와 선택 파라미터의 기본값을 명세에 맞게 구현합니다.
 - [x] `chats()`에 명세의 HTTP 메서드와 요청 경로를 매핑하고, URL의 월드 ID와 `limit`을 매개변수로 받습니다.
 - [x] `chatService.getRecentMessages(worldId, limit)`의 결과를 명세의 성공 상태 코드와 함께 반환합니다.
@@ -643,7 +643,7 @@ GET http://localhost:8080/worlds/1/chats?limit=50
 
 </details>
 
-**Lv7. WebSocket 연결과 사용자 식별**
+### Lv7. WebSocket 연결과 사용자 식별
 - [x] `playerRepository.findByNickname(nickname)`으로 플레이어를 조회해 `player`에 대입합니다. 조회 결과가 없으면 `null`을 사용합니다.
 - [x] `worldRepository.findById(worldId)`로 월드를 조회해 `world`에 대입합니다. 조회 결과가 없으면 `null`을 사용합니다.
 - [x] `attributes`에 `ATTR_NICKNAME`을 키로 `nickname`을, `ATTR_WORLD_ID`를 키로 `worldId`를 저장합니다.
@@ -720,7 +720,7 @@ build/reports/tests/test/index.html
 
 </details>
 
-**Lv8. HandshakeInterceptor 등록**
+### Lv8. HandshakeInterceptor 등록
 - [x] `WebSocketConfig`에서 `/ws/worlds/{worldId}` 경로의 핸들러에 주입된 `NicknameHandshakeInterceptor`를 등록합니다.
 
 <details>
@@ -782,5 +782,90 @@ docker compose logs app --tail 40
 ```
 
 `4002`는 `WorldSessionRegistry.register()`가 아직 구현되지 않아 발생하며, 다음 레벨에서 구현합니다.
+
+</details>
+
+### Lv9. 월드별 WebSocket 세션 관리
+- [x] `register()`에서 `sessions.putIfAbsent(nicknameKey, candidate)`로 연결을 등록하고, 반환값이 `null`이면 새로 등록한 것이므로 `added`를 `true`로 설정합니다. 이미 등록된 연결이 있으면 덮어쓰지 않습니다.
+- [x] `get()`에서 `sessions.get(key(nickname))`으로 연결을 조회해 반환합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 연결 등록 (`register`)
+* `putIfAbsent`는 키가 없을 때만 값을 넣고 `null`을, 이미 있으면 기존 값을 반환하며 **덮어쓰지 않음**
+* 반환값이 `null`인 경우에만 새로 등록된 것으로 판단
+
+```java
+Entry existing = sessions.putIfAbsent(nicknameKey, candidate);
+boolean added = (existing == null);
+
+if (added) {
+    registered.set(candidate);
+}
+```
+
+중복이면 `registered`가 비어 있으므로 `register()`는 `null`을 반환하고, 호출한 `GameWebSocketHandler`가 해당 연결을 `4002`로 닫습니다.
+
+---
+
+2. 연결 조회 (`get`)
+* `key()`가 닉네임을 소문자로 변환하므로 대소문자 구분 없이 같은 연결을 찾음
+* 해당 월드에 연결 목록이 없으면 `null` 반환
+
+```java
+public Entry get(Long worldId, String nickname) {
+    ConcurrentHashMap<String, Entry> sessions = worlds.get(worldId);
+    if (sessions == null) {
+        return null;
+    }
+
+    return sessions.get(key(nickname));
+}
+```
+
+ [WorldSessionRegistry.java 바로가기](./src/main/java/com/gameexpert/ws/WorldSessionRegistry.java)
+
+</details>
+
+- [x] 테스트 확인: `WorldSessionRegistryTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+실행 결과는 Gradle이 생성하는 HTML 리포트에서 테스트별로 확인할 수 있습니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 등록한 연결을 월드와 닉네임으로 조회할 수 있고, 같은 월드의 중복 닉네임은 기존 연결을 덮어쓰지 않습니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+Postman의 WebSocket 요청으로 연결하면 Lv 8에서 `4002`로 닫히던 연결이 유지되며, 서버가 월드 상태·플레이어 목록 등 초기 메시지를 전송합니다.
+
+```Bash
+ws://localhost:8080/ws/worlds/1?nickname=chomu
+```
+
+![Lv9 연결 유지 및 초기 메시지 수신](./img/lv9_1.png)
+
+수신한 플레이어 목록에 `"nickname":"chomu"`가 포함되어, 핸드셰이크에서 저장한 닉네임이 세션 등록까지 이어졌음을 확인할 수 있습니다.
+
+---
+
+위 연결을 유지한 상태로 같은 월드·같은 닉네임으로 다시 연결하면 **새 연결만 즉시 종료**되고 기존 연결은 그대로 유지됩니다.
+
+![Lv9 중복 닉네임 연결 거부](./img/lv9_2.png)
+
+`putIfAbsent`가 기존 항목을 덮어쓰지 않아 `register()`가 `null`을 반환하고, 나중에 들어온 연결이 닫히는 동작입니다.
 
 </details>
