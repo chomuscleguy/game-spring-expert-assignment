@@ -566,3 +566,79 @@ messages = {ImmutableCollections$ListN@11242}  size = 3
 **저장 내용** — 각 항목의 `sender`, `content`, `createdAt`이 저장 시점의 값 그대로 담겨 있습니다.
 
 </details>
+
+**Lv6. 최근 채팅 조회 API 구현**
+- [x] 요청 경로, HTTP 메서드, 경로 변수와 선택 파라미터의 기본값을 명세에 맞게 구현합니다.
+- [x] `chats()`에 명세의 HTTP 메서드와 요청 경로를 매핑하고, URL의 월드 ID와 `limit`을 매개변수로 받습니다.
+- [x] `chatService.getRecentMessages(worldId, limit)`의 결과를 명세의 성공 상태 코드와 함께 반환합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 요청 매핑
+* 명세의 `GET /worlds/{worldId}/chats`를 `@GetMapping`으로 매핑
+* `worldId`는 URL 경로에 포함되므로 `@PathVariable`, `limit`은 쿼리 파라미터이므로 `@RequestParam`으로 수신
+* `limit`을 생략한 요청을 위해 `defaultValue = "50"` 지정
+
+```java
+@GetMapping("/worlds/{worldId}/chats")
+public ResponseEntity<List<ChatMessageResponse>> chats(
+        @PathVariable("worldId") Long worldId,
+        @RequestParam(value = "limit", defaultValue = "50") int limit) {
+
+    return ResponseEntity.ok(chatService.getRecentMessages(worldId, limit));
+}
+```
+
+| 값 | 위치 | 애노테이션 |
+|---|---|---|
+| `worldId` | `/worlds/**42**/chats` — 경로 | `@PathVariable` |
+| `limit` | `/worlds/42/chats?**limit=2**` — 쿼리 | `@RequestParam` |
+
+---
+
+2. 응답
+* 성공 시 `200 OK`와 함께 조회 결과를 JSON 배열로 반환 (`ResponseEntity.ok`)
+* `limit` 값의 범위 보정은 서비스 계층이 담당하므로 컨트롤러는 전달받은 값을 그대로 넘김
+
+ [WorldChatController.java 바로가기](./src/main/java/com/gameexpert/chat/controller/WorldChatController.java)
+
+</details>
+
+- [x] 테스트 확인: `RecentChatApiTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+실행 결과는 Gradle이 생성하는 HTML 리포트에서 테스트별로 확인할 수 있습니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: API를 호출하여 성공 상태 코드와 응답을 확인합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+컨테이너를 실행한 뒤 API를 호출합니다.
+
+```Bash
+GET http://localhost:8080/worlds/1/chats?limit=50
+```
+
+`200 OK`와 함께 조회 결과가 JSON 배열로 반환됩니다.
+
+![Lv6 최근 채팅 조회 응답](./img/lv6_img.png)
+
+응답 필드는 `sender`, `content`, `createdAt`이며, `createdAt`이 오름차순으로 정렬되어 과거 → 최신의 대화 순서로 반환됩니다.
+
+> 채팅 전송은 WebSocket을 통해 이루어지며 이후 레벨에서 구현하므로, 조회 API의 응답 형식과 순서를 확인하기 위해 `chat_messages`에 데이터를 직접 넣고 호출했습니다. 저장된 채팅이 없으면 빈 배열 `[]`이 반환됩니다.
+
+</details>
