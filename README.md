@@ -1070,3 +1070,86 @@ docker exec -it expert-assignment-redis redis-cli -a <REDIS_PASSWORD> --no-auth-
 연결 ID는 같고 score만 약 30초 증가했습니다. 클라이언트가 15초마다 보내는 ping을 `PingWsHandler`가 처리해 `heartbeat()`를 호출한 결과이며, Lv 10 시점에는 갱신 주체가 없어 90초 뒤 접속 인원이 0으로 떨어졌습니다.
 
 </details>
+
+### Lv12. 플레이어 이동 요청 처리
+- [x] 명세의 필드를 읽어 위치, 시선 방향과 이동 상태를 구합니다.
+- [x] 읽은 값으로 `PlayerAction.Move`를 생성하고 `engineManager.enqueue(월드 ID, 이동 요청)`에 전달합니다.
+- [x] 생성자 인자 순서는 `nickname`, `x`, `y`, `z`, `yaw`, `pitch`, `crouching`, `gliding`, `finalSceneActionId` 입니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 이동 요청 생성과 전달
+* 좌표·시선·이동 상태는 메시지에서 읽고, **월드 ID와 닉네임은 메시지가 아닌 연결 정보(`context`)에서 사용**
+
+```java
+@Override
+public void handle(WsMessageContext context, JsonNode message) {
+    String finalSceneActionId = WsFields.optionalFinalSceneActionId(message);
+    PlayerAction.Move move = new PlayerAction.Move(
+            context.nickname(),
+            WsFields.finiteNumber(message, "x"),
+            WsFields.finiteNumber(message, "y"),
+            WsFields.finiteNumber(message, "z"),
+            finiteFloat(message, "yaw"),
+            finiteFloat(message, "pitch"),
+            WsFields.booleanValue(message, "crouching"),
+            WsFields.booleanValue(message, "gliding"),
+            finalSceneActionId
+    );
+
+    engineManager.enqueue(context.worldId(), move);
+}
+```
+
+메시지에 `worldId`나 `nickname`이 포함되어 있어도 사용하지 않습니다. 이 값들은 핸드셰이크 단계에서 확정되어 세션 속성에 저장된 값을 써야, 다른 사용자의 이름으로 이동 요청을 보내는 것을 막을 수 있습니다.
+
+---
+
+2. 필드 타입별 읽기
+
+| 인자 | 자료형 | 읽는 방법 |
+|---|---|---|
+| `x`, `y`, `z` | `double` | `WsFields.finiteNumber(message, 필드명)` |
+| `yaw`, `pitch` | `float` | `WsFields.finiteFloat(message, 필드명)` |
+| `crouching`, `gliding` | `boolean` | `WsFields.booleanValue(message, 필드명)` |
+
+ [MoveWsHandler.java 바로가기](./src/main/java/com/gameexpert/ws/handler/MoveWsHandler.java)
+
+</details>
+
+- [x] 테스트 확인: `MoveWsHandlerTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+실행 결과는 Gradle이 생성하는 HTML 리포트에서 테스트별로 확인할 수 있습니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 게임에서 이동 키를 눌러 자신의 캐릭터가 이동하는지 확인합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+월드에 입장한 뒤 이동 키를 누르면 캐릭터의 위치가 이동합니다.
+
+**이동 전**
+
+![Lv12 이동 전](./img/lv12_1.png)
+
+**이동 후**
+
+![Lv12 이동 후](./img/lv12_2.png)
+
+배경의 지형이 달라진 것으로 캐릭터가 실제로 이동했음을 확인할 수 있습니다.
+
+</details>

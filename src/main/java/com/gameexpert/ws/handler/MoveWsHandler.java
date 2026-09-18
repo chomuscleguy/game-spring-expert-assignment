@@ -7,6 +7,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
+import static com.gameexpert.ws.handler.WsFields.finiteFloat;
+
 @Component
 @RequiredArgsConstructor
 public class MoveWsHandler implements WsMessageHandler {
@@ -20,6 +22,18 @@ public class MoveWsHandler implements WsMessageHandler {
     @Override
     public void handle(WsMessageContext context, JsonNode message) {
         String finalSceneActionId = WsFields.optionalFinalSceneActionId(message);
-        // TODO Lv 12: 명세의 이동 값을 읽어 현재 사용자의 이동 요청을 엔진에 전달합니다.
+        PlayerAction.Move move = new PlayerAction.Move(
+                context.nickname(),
+                WsFields.finiteNumber(message, "x"),
+                WsFields.finiteNumber(message, "y"),
+                WsFields.finiteNumber(message, "z"),
+                finiteFloat(message, "yaw"),
+                finiteFloat(message, "pitch"),
+                WsFields.booleanValue(message, "crouching"),
+                WsFields.booleanValue(message, "gliding"),
+                finalSceneActionId
+        );
+
+        engineManager.enqueue(context.worldId(), move);
     }
 }

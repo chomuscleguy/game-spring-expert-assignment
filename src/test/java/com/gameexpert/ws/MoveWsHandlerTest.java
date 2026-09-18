@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class MoveWsHandlerTest {
-    // @Test
+    @Test
     void forwardsMovementValuesUsingConnectionIdentity() {
         WorldEngineManager engine = mock(WorldEngineManager.class);
         MoveWsHandler handler = new MoveWsHandler(engine);
@@ -36,7 +36,7 @@ class MoveWsHandlerTest {
         verifyNoMoreInteractions(engine);
     }
 
-    // @Test
+    @Test
     void preservesTheOppositeMovementFlags() {
         WorldEngineManager engine = mock(WorldEngineManager.class);
         new MoveWsHandler(engine).handle(
