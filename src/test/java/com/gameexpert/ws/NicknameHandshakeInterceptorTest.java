@@ -5,21 +5,22 @@ import com.gameexpert.player.repository.PlayerRepository;
 import com.gameexpert.world.WorldBaselineReadiness;
 import com.gameexpert.world.entity.World;
 import com.gameexpert.world.repository.WorldRepository;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.server.ServletServerHttpRequest;
+import org.springframework.http.server.ServletServerHttpResponse;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.socket.WebSocketHandler;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import org.junit.jupiter.api.Test;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.http.server.ServletServerHttpRequest;
-import org.springframework.http.server.ServletServerHttpResponse;
-import org.springframework.web.socket.WebSocketHandler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 class NicknameHandshakeInterceptorTest {
-    // @Test
+    @Test
     void looksUpRequestedPlayerAndWorldAndStoresConnectionAttributes() {
         PlayerRepository players = mock(PlayerRepository.class);
         WorldRepository worlds = mock(WorldRepository.class);
@@ -48,7 +49,8 @@ class NicknameHandshakeInterceptorTest {
                 .containsEntry(NicknameHandshakeInterceptor.ATTR_PLAYER_ID, 31L)
                 .doesNotContainKey(NicknameHandshakeInterceptor.ATTR_ERROR_CODE);
     }
-    // @Test
+
+    @Test
     void missingPlayerUsesProvidedErrorResponse() {
         PlayerRepository players = mock(PlayerRepository.class);
         WorldRepository worlds = mock(WorldRepository.class);
@@ -69,7 +71,7 @@ class NicknameHandshakeInterceptorTest {
         assertThat(attributes).containsEntry(NicknameHandshakeInterceptor.ATTR_ERROR_CODE, 4000);
     }
 
-    // @Test
+    @Test
     void missingWorldUsesProvidedErrorResponse() {
         PlayerRepository players = mock(PlayerRepository.class);
         WorldRepository worlds = mock(WorldRepository.class);

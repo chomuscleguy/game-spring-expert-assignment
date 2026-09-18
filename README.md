@@ -642,3 +642,80 @@ GET http://localhost:8080/worlds/1/chats?limit=50
 > 채팅 전송은 WebSocket을 통해 이루어지며 이후 레벨에서 구현하므로, 조회 API의 응답 형식과 순서를 확인하기 위해 `chat_messages`에 데이터를 직접 넣고 호출했습니다. 저장된 채팅이 없으면 빈 배열 `[]`이 반환됩니다.
 
 </details>
+
+**Lv7. WebSocket 연결과 사용자 식별**
+- [x] `playerRepository.findByNickname(nickname)`으로 플레이어를 조회해 `player`에 대입합니다. 조회 결과가 없으면 `null`을 사용합니다.
+- [x] `worldRepository.findById(worldId)`로 월드를 조회해 `world`에 대입합니다. 조회 결과가 없으면 `null`을 사용합니다.
+- [x] `attributes`에 `ATTR_NICKNAME`을 키로 `nickname`을, `ATTR_WORLD_ID`를 키로 `worldId`를 저장합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 플레이어와 월드 조회
+* 조회 실패를 예외가 아닌 `null`로 처리 — 핸드셰이크 자체는 성립시키고 연결 직후 에러 코드로 닫는 구조이므로, 여기서 예외를 던지면 클라이언트가 실패 사유를 받지 못함
+
+```java
+Player player = playerRepository.findByNickname(nickname).orElse(null);
+if (player == null) {
+    attributes.put(ATTR_ERROR_CODE, 4000);
+    return true;
+}
+
+Long worldId = readWorldId(request);
+...
+World world = worldRepository.findById(worldId).orElse(null);
+if (world == null || worldRepository.isDimensionChild(worldId)) {
+    attributes.put(ATTR_ERROR_CODE, 4001);
+    return true;
+}
+```
+
+| 상황 | 에러 코드 |
+|---|---|
+| 닉네임이 없거나 등록되지 않은 플레이어 | `4000` |
+| 월드 ID를 읽을 수 없거나 존재하지 않는 월드 | `4001` |
+
+---
+
+2. 연결 속성 저장
+* 이후 메시지 처리 단계에서 `WebSocketSession.getAttributes()`로 꺼내 쓸 값들을 저장
+
+```java
+attributes.put(ATTR_NICKNAME, nickname);
+attributes.put(ATTR_WORLD_ID, worldId);
+attributes.put(ATTR_PLAYER_ID, player.getId());
+attributes.put(ATTR_WORLD_SEED, (int) world.getSeed());
+attributes.put(ATTR_WORLD_DIFFICULTY, world.getDifficulty());
+```
+
+ [NicknameHandshakeInterceptor.java 바로가기](./src/main/java/com/gameexpert/ws/NicknameHandshakeInterceptor.java)
+
+</details>
+
+- [x] 테스트 확인: `NicknameHandshakeInterceptorTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+실행 결과는 Gradle이 생성하는 HTML 리포트에서 테스트별로 확인할 수 있습니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 제공 테스트에서 정상 요청의 닉네임과 월드 ID가 세션 속성에 저장되는지 확인합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+`looksUpRequestedPlayerAndWorldAndStoresConnectionAttributes`가 `/ws/worlds/72?nickname=Alex` 형태의 요청으로 `beforeHandshake()`를 호출하고, 세션 속성에 닉네임과 월드 ID가 저장됐는지 검증합니다.
+
+![Lv7 핸드셰이크 인터셉터 테스트 결과](./img/lv7_img.png)
+
+</details>
