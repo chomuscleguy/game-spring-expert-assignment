@@ -719,3 +719,68 @@ build/reports/tests/test/index.html
 ![Lv7 핸드셰이크 인터셉터 테스트 결과](./img/lv7_img.png)
 
 </details>
+
+**Lv8. HandshakeInterceptor 등록**
+- [x] `WebSocketConfig`에서 `/ws/worlds/{worldId}` 경로의 핸들러에 주입된 `NicknameHandshakeInterceptor`를 등록합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 핸들러에 인터셉터 연결
+* `NicknameHandshakeInterceptor`가 `@Component`로 빈 등록되어 있어도 연결 요청에 자동으로 적용되지는 않음
+* 핸들러 등록 시 `addInterceptors()`로 명시적으로 연결해야 `beforeHandshake()`가 호출됨
+
+```java
+@Override
+public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+    registry.addHandler(gameWebSocketHandler, "/ws/worlds/{worldId}")
+            .addInterceptors(nicknameInterceptor)
+            .setAllowedOriginPatterns(properties.wsAllowedOrigins().toArray(String[]::new));
+}
+```
+
+ [WebSocketConfig.java 바로가기](./src/main/java/com/gameexpert/config/WebSocketConfig.java)
+
+</details>
+
+- [x] 테스트 확인: `WebSocketConfigTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+실행 결과는 Gradle이 생성하는 HTML 리포트에서 테스트별로 확인할 수 있습니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: Postman으로 연결을 요청하고 로그 또는 디버거로 `beforeHandshake()` 실행과 월드 ID 및 닉네임의 세션 속성 저장을 확인합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+Postman의 WebSocket 요청으로 등록된 닉네임과 생성된 월드 ID를 사용해 연결합니다.
+
+```Bash
+ws://localhost:8080/ws/worlds/1?nickname=chomu
+```
+
+![Lv8 WebSocket 연결 결과](./img/lv8_img.png)
+
+`101 Switching Protocols`로 핸드셰이크가 성사되었고, 연결은 코드 `4002`로 종료됩니다.
+
+`GameWebSocketHandler`는 연결 직후 세션 속성이 비어 있으면 `연결 정보 누락: HandshakeInterceptor 구현과 등록을 확인하세요.` 를 로그로 남기고 `4000`으로 닫습니다. 서버 로그에 해당 메시지가 없고 `4002`로 닫혔다는 것은, **`beforeHandshake()`가 실행되어 닉네임과 월드 ID가 세션 속성에 저장된 뒤** 다음 단계인 세션 등록에서 종료되었음을 의미합니다.
+
+```Bash
+docker compose logs app --tail 40
+```
+
+`4002`는 `WorldSessionRegistry.register()`가 아직 구현되지 않아 발생하며, 다음 레벨에서 구현합니다.
+
+</details>

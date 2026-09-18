@@ -10,7 +10,7 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistra
 import static org.mockito.Mockito.*;
 
 class WebSocketConfigTest {
-    // @Test
+    @Test
     void registersProvidedInterceptorOnWorldEndpoint() {
         GameWebSocketHandler handler = mock(GameWebSocketHandler.class);
         NicknameHandshakeInterceptor interceptor = mock(NicknameHandshakeInterceptor.class);
