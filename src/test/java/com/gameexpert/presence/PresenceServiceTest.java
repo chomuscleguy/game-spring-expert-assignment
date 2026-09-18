@@ -34,7 +34,7 @@ class PresenceServiceTest {
         REDIS.stop();
     }
 
-    // @Test
+    @Test
     void joinStoresConnectionWithExpiryScoreInRequestedWorld() {
         PresenceService service = new PresenceService(redisTemplate);
         String connectionId = UUID.randomUUID().toString();
@@ -47,7 +47,7 @@ class PresenceServiceTest {
         assertThat(redisTemplate.opsForZSet().score("world:102:presence", connectionId)).isNull();
     }
 
-    // @Test
+    @Test
     void leaveRemovesOnlySpecifiedConnectionFromSpecifiedWorld() {
         String connectionId = UUID.randomUUID().toString();
         String otherConnection = UUID.randomUUID().toString();

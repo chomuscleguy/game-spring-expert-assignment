@@ -35,12 +35,12 @@ public class PresenceService implements com.gameexpert.api.PresenceOperations {
 
     public void join(Long worldId, String connectionId) {
         String key = key(worldId);
-        // TODO Lv 10: ZSet에 connectionId를 member로, expiresAt()을 score로 저장합니다.
+        redisTemplate.opsForZSet().add(key, connectionId, expiresAt());
         redisTemplate.expire(key, KEY_TTL);
     }
 
     public void leave(Long worldId, String connectionId) {
-        // TODO Lv 10: key(worldId)의 ZSet에서 connectionId를 제거합니다.
+        redisTemplate.opsForZSet().remove(key(worldId), connectionId);
     }
 
     public void heartbeat(Long worldId, String connectionId) {

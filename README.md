@@ -869,3 +869,102 @@ ws://localhost:8080/ws/worlds/1?nickname=chomu
 `putIfAbsent`가 기존 항목을 덮어쓰지 않아 `register()`가 `null`을 반환하고, 나중에 들어온 연결이 닫히는 동작입니다.
 
 </details>
+
+### Lv10. Redis 접속 상태 관리
+- [x] `join()`에서 `redisTemplate.opsForZSet().add(key, connectionId, expiresAt())`로 접속 정보를 저장합니다.
+- [x] `leave()`에서 `redisTemplate.opsForZSet().remove(key(worldId), connectionId)`로 종료된 연결을 삭제합니다.
+- [x] 연결별 만료는 90초, 키 전체 정리용 TTL은 180초입니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 접속 등록 (`join`)
+* Sorted Set의 member에 `connectionId`, score에 만료 시각(에포크 밀리초)을 저장
+* 월드별로 `world:{worldId}:presence` 키를 사용해 접속 목록을 분리
+
+```java
+public void join(Long worldId, String connectionId) {
+    String key = key(worldId);
+    redisTemplate.opsForZSet().add(key, connectionId, expiresAt());
+    redisTemplate.expire(key, KEY_TTL);
+}
+```
+
+score를 만료 시각으로 두면 `onlineCount()`에서 `removeRangeByScore`로 만료된 연결을 한 번에 정리할 수 있습니다.
+
+---
+
+2. 접속 해제 (`leave`)
+* 종료된 연결만 해당 월드의 Set에서 제거
+
+```java
+public void leave(Long worldId, String connectionId) {
+    redisTemplate.opsForZSet().remove(key(worldId), connectionId);
+}
+```
+
+키를 `key(worldId)`로 특정하므로, 같은 `connectionId`가 다른 월드에 있어도 영향을 받지 않습니다.
+
+---
+
+3. 만료 시간
+* 연결별 만료 90초 — score에 반영되어 만료된 연결이 접속자 수에서 제외됨
+* 키 전체 TTL 180초 — 모든 연결이 끊긴 월드의 키가 Redis에 남지 않도록 정리
+
+```java
+private static final Duration TTL = Duration.ofSeconds(90);
+private static final Duration KEY_TTL = Duration.ofSeconds(180);
+```
+
+ [PresenceService.java 바로가기](./src/main/java/com/gameexpert/presence/PresenceService.java)
+
+</details>
+
+- [x] 테스트 확인: Docker를 실행하고 `PresenceServiceTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+`PresenceServiceTest`는 Testcontainers로 Redis 컨테이너를 직접 띄워 검증하므로 Docker가 실행 중이어야 합니다.
+
+```Bash
+.\gradlew test
+```
+
+실행 결과는 Gradle이 생성하는 HTML 리포트에서 테스트별로 확인할 수 있습니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 연결하면 Redis에 연결 ID와 만료 시각이 저장되고, 정상 종료하면 해당 원소가 제거됩니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+Postman의 WebSocket 요청으로 연결한 뒤 Redis에서 Sorted Set을 조회합니다.
+
+```Bash
+docker exec -it expert-assignment-redis redis-cli -a <REDIS_PASSWORD> --no-auth-warning ZRANGE world:1:presence 0 -1 WITHSCORES
+```
+
+**연결 중** — member에 연결 ID, score에 만료 시각이 저장됩니다.
+
+```Bash
+1) "93261e3e-20c5-4e6a-a242-d28880553d72:dimension:0"
+2) "1789730268569"
+```
+
+score `1789730268569`는 연결 시각에 90초를 더한 값입니다.
+
+**연결 종료 후** — `leave()`가 해당 원소를 제거합니다.
+
+```Bash
+(empty array)
+```
+
+만료 시간(90초)보다 짧은 간격에 확인하여, 만료 정리가 아닌 `leave()` 호출로 제거된 것임을 확인했습니다.
+
+</details>
