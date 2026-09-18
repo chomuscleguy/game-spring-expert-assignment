@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 class PingWsHandlerTest {
-    // @Test
+    @Test
     void renewsCurrentConnectionAndSendsPongOnlyToRequester() {
         WorldSessionRegistry registry = mock(WorldSessionRegistry.class);
         WorldBroadcaster broadcaster = mock(WorldBroadcaster.class);

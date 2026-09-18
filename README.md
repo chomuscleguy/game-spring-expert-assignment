@@ -968,3 +968,105 @@ score `1789730268569`는 연결 시각에 90초를 더한 값입니다.
 만료 시간(90초)보다 짧은 간격에 확인하여, 만료 정리가 아닌 `leave()` 호출로 제거된 것임을 확인했습니다.
 
 </details>
+
+### Lv11. 메시지 라우팅과 Ping/Pong
+- [x] `MessageRouter.route()`에서 찾아 둔 `handler`의 `handle(context, message)`를 호출합니다.
+- [x] `PingWsHandler`에서 `presenceService.heartbeat(...)`로 현재 연결의 Redis 접속 상태를 갱신합니다.
+- [x] `broadcaster.sendTo(context.session(), new PongResponse())`로 ping을 보낸 연결에 pong을 응답합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 메시지 라우팅 (`MessageRouter`)
+* `type` 값으로 찾은 핸들러에 `context`와 파싱된 메시지를 그대로 전달
+* 핸들러 실행 중 발생하는 예외는 종류별로 에러 코드로 변환해 응답
+
+```java
+try {
+    handler.handle(context, message);
+} catch (ActionQueueOverflowException exception) {
+    error(context, "QUEUE_FULL");
+} catch (IllegalArgumentException exception) {
+    error(context, "INVALID_MESSAGE");
+} catch (Exception exception) {
+    error(context, "INTERNAL_ERROR");
+}
+```
+
+ [MessageRouter.java 바로가기](./src/main/java/com/gameexpert/ws/MessageRouter.java)
+
+---
+
+2. Ping 처리 (`PingWsHandler`)
+* 현재 세션이 레지스트리에 등록된 연결과 같은지 확인한 뒤에만 처리
+* Redis 접속 상태를 갱신하고, ping을 보낸 연결에만 pong을 응답
+
+```java
+WorldSessionRegistry.Entry connection = registry.get(context.worldId(), context.nickname());
+if (connection == null || connection.session() != context.session()) {
+    return;
+}
+
+presenceService.heartbeat(context.worldId(), connection.connectionId());
+broadcaster.sendTo(context.session(), new PongResponse());
+```
+
+`heartbeat()`는 `ZADD XX`로 **기존 원소의 점수만 갱신**하므로, 이미 종료된 연결이 되살아나지 않습니다.
+
+ [PingWsHandler.java 바로가기](./src/main/java/com/gameexpert/ws/handler/PingWsHandler.java)
+
+</details>
+
+- [x] 테스트 확인: `MessageRouterTest.java`와 `PingWsHandlerTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+실행 결과는 Gradle이 생성하는 HTML 리포트에서 테스트별로 확인할 수 있습니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 게임에 입장한 상태에서 `GET /worlds`의 접속 인원이 90초 후에도 유지되는지 확인합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+게임에 입장한 상태에서 시간 간격을 두고 월드 목록을 조회하면 접속 인원이 유지됩니다.
+
+```Bash
+curl.exe -s "http://localhost:8080/worlds"
+```
+
+```Bash
+[{"id":1,"name":"수상한 개울","seed":2084300183,"onlineCount":1,"difficulty":"normal"}]
+```
+
+---
+
+유지되는 이유는 ping마다 Redis의 만료 시각이 갱신되기 때문입니다. 같은 연결의 score를 시간차를 두고 조회하면 값이 증가합니다.
+
+```Bash
+docker exec -it expert-assignment-redis redis-cli -a <REDIS_PASSWORD> --no-auth-warning ZRANGE world:1:presence 0 -1 WITHSCORES
+```
+
+```Bash
+1) "47941a20-0ef6-440f-a0ae-68b59b11e4b1:dimension:0"
+2) "1789732957857"
+```
+
+```Bash
+1) "47941a20-0ef6-440f-a0ae-68b59b11e4b1:dimension:0"
+2) "1789732988197"
+```
+
+연결 ID는 같고 score만 약 30초 증가했습니다. 클라이언트가 15초마다 보내는 ping을 `PingWsHandler`가 처리해 `heartbeat()`를 호출한 결과이며, Lv 10 시점에는 갱신 주체가 없어 90초 뒤 접속 인원이 0으로 떨어졌습니다.
+
+</details>

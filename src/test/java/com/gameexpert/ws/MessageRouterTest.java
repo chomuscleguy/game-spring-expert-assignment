@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 class MessageRouterTest {
-    // @Test
+    @Test
     void invokesSelectedHandlerWithSameContextAndParsedPayload() {
         EngineMessageHandler selected = mock(EngineMessageHandler.class);
         EngineMessageHandler other = mock(EngineMessageHandler.class);

@@ -25,7 +25,7 @@ public class MessageRouter {
     private final Map<String, EngineMessageHandler> handlers;
 
     public MessageRouter(ObjectMapper objectMapper, WorldBroadcaster broadcaster,
-            List<EngineMessageHandler> handlers) {
+                         List<EngineMessageHandler> handlers) {
         this.objectMapper = objectMapper;
         this.broadcaster = broadcaster;
         this.handlers = handlers.stream()
@@ -55,7 +55,7 @@ public class MessageRouter {
             return;
         }
         try {
-            // TODO Lv 11: handler에 context와 message를 전달해 handle()을 호출합니다.
+            handler.handle(context, message);
         } catch (ActionQueueOverflowException exception) {
             log.warn("액션 큐 상한 초과로 거부: type={}, world={}, nickname={}",
                     type, context.worldId(), context.nickname());
