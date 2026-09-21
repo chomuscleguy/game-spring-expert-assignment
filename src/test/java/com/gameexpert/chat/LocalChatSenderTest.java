@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.*;
 
 class LocalChatSenderTest {
-    // @Test
+    @Test
     void broadcastsTheProvidedMessageOnceToTheProvidedWorld() {
         WorldBroadcaster broadcaster = mock(WorldBroadcaster.class);
         LocalChatSender sender = new LocalChatSender(broadcaster);

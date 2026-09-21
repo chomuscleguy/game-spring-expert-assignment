@@ -1247,3 +1247,100 @@ select id, world_id, sender_nickname, content, created_at from chat_messages ord
 > 이 단계까지는 보낸 사람과 다른 참여자의 화면에 채팅이 표시되지 않습니다. 같은 월드의 참여자에게 전달하는 것은 Lv14의 `LocalChatSender` 범위입니다.
 
 </details>
+
+### Lv14. 같은 월드의 참여자에게 채팅 전송
+- [x] `WorldBroadcaster.broadcast(worldId, message)`로 같은 월드의 세션에 메시지를 전달합니다. 보낸 사람도 수신 대상에 포함합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 전달 대상 선정을 위임
+* 어떤 연결이 그 월드에 속하는지는 `WorldSessionRegistry`가 이미 알고 있으므로, 수신자 목록을 따로 관리하지 않고 월드 ID만 넘김
+
+```java
+public void send(Long worldId, Object message) {
+    broadcaster.broadcast(worldId, message);
+}
+```
+
+```java
+public void broadcast(Long worldId, Object message) {
+    registry.entries(worldId).stream()
+            .map(WorldSessionRegistry.Entry::session)
+            .forEach(session -> sendTo(session, message));
+}
+```
+
+`registry.entries(worldId)`가 **해당 월드의 연결만** 반환하므로 다른 월드의 세션은 순회 대상에 들어오지 않습니다. 월드 간 격리가 이 지점에서 성립합니다.
+
+---
+
+2. 보낸 사람이 수신 대상에 포함되는 이유
+* 보낸 사람의 세션도 같은 월드의 연결 목록에 들어 있으므로 별도 분기 없이 함께 수신 — 오히려 보낸 사람을 빼려면 세션을 비교해 제외하는 코드가 추가로 필요
+* 보낸 사람도 서버가 확정한 시각과 저장 결과를 그대로 받게 되어, 자기 화면에만 다른 값이 표시되는 일이 없음
+
+---
+
+3. 한 번 저장하고 여러 명에게 전송
+* Lv13의 `saveMessage()`가 한 번 실행되어 응답 객체 하나를 만들고, 그 **같은 객체**를 월드의 모든 세션에 전달
+* 수신자가 몇 명이든 DB에 남는 기록은 한 건
+
+ [LocalChatSender.java 바로가기](./src/main/java/com/gameexpert/chat/service/LocalChatSender.java)
+
+</details>
+
+- [x] 테스트 확인: `LocalChatSenderTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+`broadcastsTheProvidedMessageOnceToTheProvidedWorld`가 검증하는 항목입니다.
+
+| 단언 | 확인하는 것 |
+|---|---|
+| `broadcast(eq(42L), ...)` | 전달받은 월드 ID를 그대로 넘기는지 |
+| `broadcast(..., same(message))` | 메시지를 복사하거나 다시 만들지 않고 **같은 인스턴스**로 넘기는지 |
+| `verifyNoMoreInteractions(broadcaster)` | 한 번만 전송하는지 |
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 같은 월드의 두 참여자가 보낸 사람, 내용과 시각을 포함한 채팅을 받습니다. 다른 월드의 참여자에게는 전달되지 않으며 DB에는 보낸 채팅 한 건만 저장됩니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+같은 월드에 `chomu`와 `chomu2`가 접속한 상태에서 `chomu2`가 채팅을 입력했습니다. 각 화면의 네임플레이트는 **상대방**을 가리키므로, 시점의 주인은 네임플레이트에 없는 쪽입니다.
+
+**보낸 쪽 — `chomu2`의 화면**
+
+![Lv14 보낸 쪽 화면](./img/lv14_1_img.png)
+
+**받은 쪽 — `chomu`의 화면**
+
+![Lv14 받은 쪽 화면](./img/lv14_2_img.png)
+
+같은 메시지가 두 클라이언트의 채팅창에 `chomu2: 고인물이고` 형태로 함께 표시되고, 우측 상단 접속 인원도 양쪽 모두 `2명`입니다. 보낸 사람 화면에도 표시된 것은 자신의 세션 역시 수신 대상에 포함되기 때문입니다. 응답에 담기는 시각은 Lv13에서 저장 결과의 `createdAt`으로 채워집니다.
+
+전송 이후 `chat_messages`를 조회한 결과입니다.
+
+```Bash
+select world_id, sender_nickname, content, created_at from chat_messages order by id desc limit 3;
+```
+
+| `world_id` | `sender_nickname` | `content` | `created_at` |
+|---|---|---|---|
+| 4 | chomu2 | 고인물이고 | 2026-09-21 16:09:00.509909 |
+| 4 | chomu | 반갑고 | 2026-09-21 16:06:12.478446 |
+| 5 | chomu | 여긴 인사가 없네 | 2026-09-21 16:01:10.976763 |
+
+두 명이 받은 `고인물이고`가 **한 건만** 저장되어 있습니다. 수신자 수와 저장 건수는 무관합니다. 또한 다른 월드(`world_id = 5`)에는 그 월드에서 보낸 메시지만 남아 있으며, 월드 4의 채팅은 월드 5의 참여자에게 전달되지도, 기록되지도 않았습니다.
+
+</details>
