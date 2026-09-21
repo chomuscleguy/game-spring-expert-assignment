@@ -1,24 +1,25 @@
 package com.gameexpert.chat;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 import com.gameexpert.chat.dto.ChatHistoryPage;
 import com.gameexpert.chat.entity.ChatMessage;
 import com.gameexpert.chat.repository.ChatHistoryRepository;
 import com.gameexpert.chat.service.ChatHistoryService;
 import com.gameexpert.world.entity.World;
 import com.gameexpert.world.repository.WorldRepository;
-import java.time.LocalDateTime;
-import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ChatHistoryTest {
     private static final Long WORLD_ID = 1L;
@@ -34,7 +35,7 @@ class ChatHistoryTest {
         service = new ChatHistoryService(repository, worlds);
     }
 
-    // @Test
+    @Test
     void nextCursorUsesLastReturnedItemInsteadOfExtraRow() {
         List<ChatMessage> found = List.of(
                 message(30L, TIME),
@@ -51,7 +52,7 @@ class ChatHistoryTest {
         assertThat(page.getNextCreatedAt()).isEqualTo(TIME.minusSeconds(1));
     }
 
-    // @Test
+    @Test
     void lastPageHasNoCursorEvenWhenItContainsMessages() {
         givenMessages(List.of(message(20L, TIME), message(10L, TIME.minusSeconds(1))));
 
@@ -63,7 +64,7 @@ class ChatHistoryTest {
         assertThat(page.getNextCreatedAt()).isNull();
     }
 
-    // @Test
+    @Test
     void emptyPageHasNoCursor() {
         givenMessages(List.of());
 

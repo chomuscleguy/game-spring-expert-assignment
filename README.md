@@ -1496,3 +1496,93 @@ build/reports/tests/test/index.html
 충돌을 검사하는 두 테스트만 깨지고, 서로 다른 월드를 저장하는 세 번째 테스트는 애너테이션 없이도 통과했습니다. 낙관적 락이 **충돌하는 저장만 거절하고 독립적인 저장은 막지 않는다**는 것이 이 차이로 확인됩니다.
 
 </details>
+
+### Lv17. 커서 페이지 조회
+- [x] 조회 결과는 생성 시각 내림차순이며, 시각이 같으면 ID 내림차순입니다. `hasNext`가 `true`이면 반환 목록 `items`의 마지막 항목을 `last`에 대입하고, `false`이면 `null`을 대입합니다.
+- [x] 첫 요청은 커서 없이 호출하고, 다음 페이지는 응답의 `nextCreatedAt`과 `nextId`를 각각 `beforeCreatedAt`, `beforeId`로 함께 전달합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 다음 커서 선택
+
+```java
+ChatHistoryEntry last = hasNext ? items.getLast() : null;
+```
+
+* 커서 후보는 **반환한 `items`의 마지막 항목**과 다음 페이지 확인용으로 한 건 더 읽은 **여분 행** 두 가지 — 여분 행을 커서로 쓰면 다음 조회 조건이 `< 여분 행`이 되어 그 행 자체가 결과에서 빠지고 한 건이 영구히 누락됨
+* 커서의 의미는 "여기까지 반환했음"이므로 클라이언트가 실제로 받은 마지막 항목이어야 이어지는 조회에 빈틈이 없음
+* `hasNext`가 `false`면 뒤에 남은 데이터가 없으므로 `null` — 클라이언트는 `nextCreatedAt`이 비어 있는 것으로 마지막 페이지를 판단
+
+---
+
+2. 커서가 값 두 개인 이유
+* 생성 시각만으로 자르면 같은 시각에 저장된 항목들이 통째로 누락되거나 중복될 수 있음 — 이 과제의 `created_at`은 `datetime(6)`이지만 동시 저장으로 동률이 생길 수 있음
+* 시각이 같을 때를 ID로 한 번 더 가르면 유일성이 보장되므로, 정렬과 커서 조건을 모두 2단계로 맞춤
+
+```sql
+order by message.createdAt desc, message.id desc
+```
+
+```sql
+where (:beforeCreatedAt is null or message.createdAt < :beforeCreatedAt
+       or (message.createdAt = :beforeCreatedAt and message.id < :beforeId))
+```
+
+`:beforeCreatedAt is null` 조건이 첫 요청을 처리합니다. 커서가 없으면 조건 전체가 참이 되어 가장 최근 항목부터 읽습니다.
+
+---
+
+3. `offset` 대신 커서를 쓰는 이유
+* 채팅은 조회 중에도 계속 추가되므로 `offset` 기준은 새 메시지가 들어올 때마다 위치가 밀려 **같은 항목이 두 페이지에 나오거나 건너뛰어짐**
+* 커서는 위치를 번호가 아니라 값으로 기억하므로 앞쪽에 데이터가 추가되어도 이어지는 지점이 달라지지 않음
+* 다만 임의의 페이지로 건너뛸 수 없어, 번호 방식의 목록보다 무한 스크롤 형태의 조회에 적합
+
+ [ChatHistoryService.java 바로가기](./src/main/java/com/gameexpert/chat/service/ChatHistoryService.java)
+
+</details>
+
+- [x] 테스트 확인: `ChatHistoryTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+| 테스트 | 확인하는 것 | 결과 |
+|---|---|---|
+| `nextCursorUsesLastReturnedItemInsteadOfExtraRow` | 커서가 여분 행이 아니라 반환 목록의 마지막 항목인지 | 통과 |
+| `lastPageHasNoCursorEvenWhenItContainsMessages` | 항목이 있어도 마지막 페이지면 커서가 `null`인지 | 통과 |
+| `emptyPageHasNoCursor` | 빈 결과에서도 커서가 `null`인지 | 통과 |
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 제공 테스트에서 다음 커서가 반환한 목록의 마지막 항목인지 확인합니다. 마지막 페이지와 빈 결과에서는 다음 커서가 `null`이어야 합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+2건을 요청하면 다음 페이지 여부를 판단하기 위해 3건을 조회합니다. 세 번째 항목은 `hasNext` 계산에만 쓰고 반환하지 않습니다.
+
+```java
+List<ChatMessage> found = repository.findHistory(
+        worldId, beforeCreatedAt, beforeId, PageRequest.of(0, limit + 1));
+boolean hasNext = found.size() > limit;
+List<ChatHistoryEntry> items = found.stream().limit(limit)...
+```
+
+| 조회된 3건 | 반환 `items` | 다음 커서 | 다음 페이지 |
+|---|---|---|---|
+| `E`, `D`, `C` | `E`, `D` | `D` | `C`부터 이어짐 |
+
+첫 번째 테스트가 이 관계를 직접 검증합니다. 반환한 마지막 항목의 ID(`20L`)와 생성 시각이 그대로 `nextId`, `nextCreatedAt`으로 나오는지 확인하므로, 여분 행을 커서로 삼으면 이 단언에서 걸립니다.
+
+나머지 두 테스트는 커서가 비어야 하는 경우를 나눠서 확인합니다. 항목이 채워진 마지막 페이지와 항목이 하나도 없는 결과 모두 `nextCreatedAt`과 `nextId`가 `null`이어야 합니다.
+
+</details>
