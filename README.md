@@ -856,7 +856,7 @@ Postman의 WebSocket 요청으로 연결하면 Lv 8에서 `4002`로 닫히던 �
 ws://localhost:8080/ws/worlds/1?nickname=chomu
 ```
 
-![Lv9 연결 유지 및 초기 메시지 수신](./img/lv9_1.png)
+![Lv9 연결 유지 및 초기 메시지 수신](./img/lv9_1_img.png)
 
 수신한 플레이어 목록에 `"nickname":"chomu"`가 포함되어, 핸드셰이크에서 저장한 닉네임이 세션 등록까지 이어졌음을 확인할 수 있습니다.
 
@@ -864,7 +864,7 @@ ws://localhost:8080/ws/worlds/1?nickname=chomu
 
 위 연결을 유지한 상태로 같은 월드·같은 닉네임으로 다시 연결하면 **새 연결만 즉시 종료**되고 기존 연결은 그대로 유지됩니다.
 
-![Lv9 중복 닉네임 연결 거부](./img/lv9_2.png)
+![Lv9 중복 닉네임 연결 거부](./img/lv9_2_img.png)
 
 `putIfAbsent`가 기존 항목을 덮어쓰지 않아 `register()`가 `null`을 반환하고, 나중에 들어온 연결이 닫히는 동작입니다.
 
@@ -1144,12 +1144,106 @@ build/reports/tests/test/index.html
 
 **이동 전**
 
-![Lv12 이동 전](./img/lv12_1.png)
+![Lv12 이동 전](./img/lv12_1_img.png)
 
 **이동 후**
 
-![Lv12 이동 후](./img/lv12_2.png)
+![Lv12 이동 후](./img/lv12_2_img.png)
 
 배경의 지형이 달라진 것으로 캐릭터가 실제로 이동했음을 확인할 수 있습니다.
+
+</details>
+
+### Lv13. 채팅 요청 처리와 응답 구성
+- [x] `readContent()`에서 명세의 채팅 내용 필드를 읽어 반환합니다.
+- [x] 명세를 보고 `ChatResponse`의 필드와 생성자를 완성합니다. `type`은 매개변수로 받지 않고 항상 `"chat"`으로 채웁니다.
+- [x] `createResponse()`에서 `chatService.saveMessage()`로 채팅을 저장하고, 저장 결과로 `ChatResponse`를 만들어 반환합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 요청 필드 읽기
+* `WsFields.text()`는 필드가 없거나 문자열이 아니면 `IllegalArgumentException`을 던지고, 이를 `MessageRouter`가 `INVALID_MESSAGE` 응답으로 변환 — 핸들러에 검증 코드나 `try/catch`를 두지 않아도 잘못된 요청이 걸러짐
+
+```java
+private String readContent(JsonNode message) {
+    return WsFields.text(message, "content");
+}
+```
+
+---
+
+2. `type` 필드 고정
+* 생성자 매개변수가 아니라 선언과 동시에 초기화 — 호출부가 다른 값을 넣을 여지를 없애고, 모든 채팅 응답이 같은 `type`을 갖도록 보장
+
+```java
+private final String type = "chat";
+private final String sender;
+private final String content;
+private final LocalDateTime timestamp;
+```
+
+ [ChatResponse.java 바로가기](./src/main/java/com/gameexpert/ws/dto/ChatResponse.java)
+
+---
+
+3. 저장 결과로 응답 구성
+* 응답을 **요청에서 읽은 값이 아니라 `saveMessage()`가 돌려준 값**으로 조립 — `timestamp`는 저장 시점에만 확정되고, 저장 과정에서 내용이 가공될 수 있으므로 클라이언트가 받는 응답과 DB에 남은 기록이 어긋나지 않아야 함
+* 월드와 보낸 사람은 메시지가 아닌 연결 정보(`context`)에서 사용 — 다른 사용자의 이름으로 채팅을 보내는 것을 막기 위함
+
+```java
+private ChatResponse createResponse(WsMessageContext context, String content) {
+    ChatMessageResponse saved = chatService.saveMessage(context.worldId(), context.nickname(), content);
+    return new ChatResponse(saved.getSender(), saved.getContent(), saved.getCreatedAt());
+}
+```
+
+ [ChatWsHandler.java 바로가기](./src/main/java/com/gameexpert/ws/handler/ChatWsHandler.java)
+
+</details>
+
+- [x] 테스트 확인: `ChatWsHandlerTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+`savesUsingConnectionIdentityAndBuildsResponseFromSavedResult`는 `saveMessage()`가 요청과 **다른 값**(`"SavedAlice"`, `"저장된 내용"`)을 반환하도록 스텁해 둡니다. 요청에서 읽은 값으로 응답을 만들면 이 단언에서 걸리므로, 응답이 저장 결과에서 조립됐는지를 가려냅니다. 메시지에 포함된 `nickname`, `worldId`를 쓰지 않았는지도 함께 검증합니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 게임에서 일반 채팅을 보내고 최근 채팅 조회 API와 DB에서 저장 결과를 확인합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+월드에 입장해 채팅을 입력한 뒤, Lv6에서 구현한 최근 채팅 조회 API로 저장 결과를 확인했습니다.
+
+```Bash
+GET http://localhost:8080/worlds/4/chats?limit=10
+```
+
+![Lv13 게임에서 보낸 채팅 저장 결과](./img/lv13_img.png)
+
+`sender`에는 메시지에 담긴 값이 아니라 핸드셰이크에서 확정된 접속 닉네임이 들어갑니다. `chat_messages` 테이블에서도 같은 행을 확인할 수 있습니다.
+
+```Bash
+select id, world_id, sender_nickname, content, created_at from chat_messages order by id desc limit 5;
+```
+
+| 컬럼 | 값 |
+|---|---|
+| `world_id` | 접속한 월드 ID |
+| `sender_nickname` | 접속 닉네임 |
+| `content` | 게임에서 입력한 내용 |
+
+> 이 단계까지는 보낸 사람과 다른 참여자의 화면에 채팅이 표시되지 않습니다. 같은 월드의 참여자에게 전달하는 것은 Lv14의 `LocalChatSender` 범위입니다.
 
 </details>

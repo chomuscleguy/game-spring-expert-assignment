@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ChatWsHandlerTest {
-    // @Test
+    @Test
     void savesUsingConnectionIdentityAndBuildsResponseFromSavedResult() {
         ChatService service = mock(ChatService.class);
         ChatDelivery delivery = mock(ChatDelivery.class);
