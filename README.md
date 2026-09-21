@@ -1586,3 +1586,97 @@ List<ChatHistoryEntry> items = found.stream().limit(limit)...
 나머지 두 테스트는 커서가 비어야 하는 경우를 나눠서 확인합니다. 항목이 채워진 마지막 페이지와 항목이 하나도 없는 결과 모두 `nextCreatedAt`과 `nextId`가 `null`이어야 합니다.
 
 </details>
+
+### Lv18. Redis 최근 채팅 캐시
+- [x] `read()`에서 `key(worldId, limit)`에 저장된 JSON 문자열을 조회합니다.
+- [x] `write()`에서 `json`을 `key(worldId, limit)`에 저장하고 5초의 TTL을 설정합니다. 빈 목록도 저장합니다.
+- [x] `invalidate()`에서 `keys` 목록에 해당하는 Redis 데이터를 삭제합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 값 조회와 저장
+
+```java
+String json = redis.opsForValue().get(key(worldId, limit));
+```
+
+```java
+redis.opsForValue().set(key(worldId, limit), json, Duration.ofSeconds(5));
+```
+
+* 문자열 하나를 통째로 다루므로 `opsForValue()`를 사용 — Redis의 `GET`/`SETEX`에 해당
+* 저장과 TTL 설정을 **한 번의 호출로 처리** — `set()` 후 `expire()`를 따로 부르면 두 호출 사이에 만료 없는 키가 남을 수 있음
+* 조회는 `get()`만 사용해 TTL을 건드리지 않음. 읽을 때마다 만료 시각이 밀리면 갱신이 반영되지 않는 캐시가 계속 살아남음
+* 캐시에 없으면 `get()`이 `null`을 반환하고, 호출부는 이를 캐시 미스로 보고 DB를 조회
+
+---
+
+2. 빈 목록도 저장하는 이유
+* 빈 리스트는 `"[]"`라는 유효한 JSON 문자열이므로 다른 값과 똑같이 저장됨
+* 저장하지 않으면 채팅이 없는 월드는 조회할 때마다 캐시 미스가 되어 매번 DB를 조회하게 됨 — "결과가 없다"는 사실도 캐시할 가치가 있는 정보
+
+---
+
+3. 키 설계와 무효화
+
+```java
+private String key(Long worldId, int limit) {
+    return "world:" + worldId + ":chat:recent:" + limit;
+}
+```
+
+```java
+redis.delete(keys);
+```
+
+* 같은 월드라도 `limit`이 다르면 조회 결과가 다르므로 키를 분리 — `limit`이 키에 포함되지 않으면 10건 요청의 결과가 50건 요청에 잘못 반환됨
+* 그 대가로 무효화 시 해당 월드의 `limit` 1~100 키를 모두 지워야 하며, `delete()`는 `Collection`을 받아 한 번에 처리. 존재하지 않는 키가 섞여 있어도 무시됨
+* `worldId`가 키에 포함되어 있어 다른 월드의 캐시는 영향을 받지 않음
+* 두 메서드의 `catch` 블록이 비어 있는 것은 의도된 설계 — 캐시는 보조 저장소이므로 Redis 장애 시 예외를 전파하지 않고 DB 조회 결과로 응답하며, 무효화에 실패한 캐시도 최대 5초 뒤 TTL로 사라짐
+
+ [RecentChatCache.java 바로가기](./src/main/java/com/gameexpert/chat/service/RecentChatCache.java)
+
+</details>
+
+- [x] 테스트 확인: Docker를 실행하고 `RecentChatCacheTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+테스트는 Testcontainers로 `redis:7.4-alpine` 컨테이너를 직접 띄우므로 Docker가 실행 중이어야 합니다.
+
+| 테스트 | 확인하는 것 | 결과 |
+|---|---|---|
+| `readsStoredMessagesAndEmptyListWithoutExtendingTtl` | 저장된 목록과 빈 목록을 다시 읽는지, 조회가 TTL을 연장하지 않는지 | 통과 |
+| `writesMessagesWithFiveSecondTtlAndKeepsOtherKeys` | TTL이 5초 이내인지, 같은 월드의 다른 `limit`과 다른 월드의 키가 보존되는지 | 통과 |
+| `writesEmptyListWithExpiry` | 빈 목록도 TTL과 함께 저장되는지 | 통과 |
+| `deletesAllLimitsOfOnlyTheSelectedWorld` | 선택한 월드의 `limit` 1~100만 삭제되고 다른 월드는 남는지 | 통과 |
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 저장한 채팅과 빈 목록을 다시 읽을 수 있고, 키의 TTL이 5초 이내인지 확인합니다. 한 월드의 캐시를 삭제해도 다른 월드의 캐시는 남아 있어야 합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+확인해야 할 네 가지가 각각 테스트에 대응합니다.
+
+| 확인 항목 | 근거 |
+|---|---|
+| 저장한 채팅을 다시 읽음 | `readsStoredMessagesAndEmptyListWithoutExtendingTtl` |
+| 빈 목록도 저장하고 다시 읽음 | `writesEmptyListWithExpiry` |
+| TTL이 5초 이내 | `getExpire(...)`가 `1 ~ 5,000ms` 범위인지 검사 |
+| 한 월드만 삭제 | `deletesAllLimitsOfOnlyTheSelectedWorld` |
+
+TTL 검사에서 상한이 5초인 것은 `Duration.ofSeconds(5)`로 설정한 값이고, 하한이 0이 아니라 1ms인 것은 **만료 시각이 실제로 설정되었는지**를 확인하기 위함입니다. TTL을 설정하지 않으면 `getExpire()`가 `-1`을 반환해 이 범위를 벗어납니다.
+
+</details>
