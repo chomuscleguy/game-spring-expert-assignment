@@ -1344,3 +1344,89 @@ select world_id, sender_nickname, content, created_at from chat_messages order b
 두 명이 받은 `고인물이고`가 **한 건만** 저장되어 있습니다. 수신자 수와 저장 건수는 무관합니다. 또한 다른 월드(`world_id = 5`)에는 그 월드에서 보낸 메시지만 남아 있으며, 월드 4의 채팅은 월드 5의 참여자에게 전달되지도, 기록되지도 않았습니다.
 
 </details>
+
+### Lv15. 접속자 목록 조회
+- [x] `registry.entries(context.worldId())`로 현재 월드의 연결 목록을 조회하고, 각 항목의 `session()` 중 `isOpen()`이 `true`인 세션만 선택합니다.
+- [x] 각 세션의 `getAttributes()`에서 `NicknameHandshakeInterceptor.ATTR_NICKNAME`에 저장된 닉네임을 꺼냅니다.
+- [x] 닉네임 목록을 명세의 기준대로 정렬해 `users`에, 목록의 크기를 `count`에 담아 `broadcaster.sendTo()`로 요청한 연결에만 응답합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 열린 연결만 추리기
+
+```java
+List<String> users = registry.entries(context.worldId()).stream()
+        .map(WorldSessionRegistry.Entry::session)
+        .filter(WebSocketSession::isOpen)
+        .map(session -> (String) session.getAttributes()
+                .get(NicknameHandshakeInterceptor.ATTR_NICKNAME))
+        .sorted()
+        .toList();
+
+broadcaster.sendTo(context.session(), new OnlineUsersResponse(users, users.size()));
+```
+
+* 끊어진 연결이 레지스트리에서 즉시 제거된다는 보장이 없으므로 `isOpen()`으로 한 번 더 거름 — 제공 테스트도 닫힌 세션을 목록에 섞어 두고 결과에서 빠지는지 검사
+* 닉네임은 Lv7의 핸드셰이크에서 세션 속성에 저장해 둔 값을 사용 — 요청 본문의 값을 신뢰하지 않음
+
+---
+
+2. 정렬 기준과 `count`
+* 명세는 "users는 원래 닉네임의 **대소문자를 보존**하고 **Java 문자열 자연 순서**로 정렬한다"고 규정 — `String.compareTo()` 기준이므로 인자 없는 `sorted()`를 사용
+* 대소문자를 무시하는 비교자를 쓰면 `Zoe`와 `alice`처럼 대소문자가 섞인 조합에서 순서가 달라짐
+* `count`는 "반환한 `users` 배열의 길이"이므로 별도로 세지 않고 `users.size()`를 사용. 명세에 따라 Redis의 인원수와 합산하지 않음
+
+---
+
+3. 요청자에게만 응답
+* Lv14의 `broadcast()`는 월드 전체, 이 응답은 `sendTo()`로 **요청한 연결 하나**에만 전달
+* 메시지에 `worldId`가 들어 있어도 사용하지 않고 `context.worldId()`를 사용 — Lv12·Lv13과 같은 원칙
+
+ [OnlineUsersWsHandler.java 바로가기](./src/main/java/com/gameexpert/ws/handler/OnlineUsersWsHandler.java) · [OnlineUsersResponse.java 바로가기](./src/main/java/com/gameexpert/ws/dto/OnlineUsersResponse.java)
+
+</details>
+
+- [x] 테스트 확인: `OnlineUsersWsHandlerTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+| 테스트 | 확인하는 것 | 결과 |
+|---|---|---|
+| `returnsSortedOpenUsersOnlyToRequester` | 닫힌 세션 제외, 자연 순서 정렬, 요청자에게만 응답 | 통과 |
+| `returnsZeroForAnEmptyList` | 빈 월드에서 `users: []`, `count: 0` | 통과 |
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 게임 창 하나만 남기고, 다른 닉네임으로 Postman에서 같은 월드에 연결해 두 닉네임과 인원수 `2`를 확인합니다. 게임 연결을 종료한 뒤 다시 요청하면 Postman의 닉네임만 남아야 합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+게임 창은 `chomu`로, Postman은 `chomu2`로 같은 월드(`worldId = 4`)에 연결한 뒤 명세의 요청을 보냈습니다.
+
+```
+ws://localhost:8080/ws/worlds/4?nickname=chomu2
+```
+
+```json
+{"type":"onlineUsers"}
+```
+
+| 시점 | 접속 상태 | 응답 |
+|---|---|---|
+| 게임 창 유지 | 게임(`chomu`) + Postman(`chomu2`) | `{"type":"onlineUsers","users":["chomu","chomu2"],"count":2}` |
+| 게임 창 종료 후 | Postman(`chomu2`)만 | `{"type":"onlineUsers","users":["chomu2"],"count":1}` |
+
+Postman 연결은 그대로 둔 채 같은 요청을 다시 보냈는데 응답이 달라졌습니다. 목록을 미리 만들어 두고 재사용하는 것이 아니라, 요청 시점의 열린 세션을 그때그때 훑는다는 뜻입니다. 정렬 결과가 `chomu` → `chomu2`인 것도 자연 순서와 일치합니다. 한쪽이 다른 쪽의 접두사이면 짧은 쪽이 앞에 옵니다.
+
+</details>

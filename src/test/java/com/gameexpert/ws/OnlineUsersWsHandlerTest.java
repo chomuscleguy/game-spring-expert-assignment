@@ -1,7 +1,5 @@
 package com.gameexpert.ws;
 
-import java.util.List;
-import java.util.Map;
 import com.gameexpert.ws.handler.OnlineUsersWsHandler;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -9,11 +7,14 @@ import org.springframework.web.socket.WebSocketSession;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import static org.junit.jupiter.api.Assertions.*;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
 
 class OnlineUsersWsHandlerTest {
-    // @Test
+    @Test
     void returnsSortedOpenUsersOnlyToRequester() {
         WorldSessionRegistry registry = mock(WorldSessionRegistry.class);
         WorldBroadcaster broadcaster = mock(WorldBroadcaster.class);
@@ -40,7 +41,7 @@ class OnlineUsersWsHandlerTest {
         verifyNoMoreInteractions(registry, broadcaster);
     }
 
-    // @Test
+    @Test
     void returnsZeroForAnEmptyList() {
         WorldSessionRegistry registry = mock(WorldSessionRegistry.class);
         WorldBroadcaster broadcaster = mock(WorldBroadcaster.class);
