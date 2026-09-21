@@ -1430,3 +1430,69 @@ ws://localhost:8080/ws/worlds/4?nickname=chomu2
 Postman 연결은 그대로 둔 채 같은 요청을 다시 보냈는데 응답이 달라졌습니다. 목록을 미리 만들어 두고 재사용하는 것이 아니라, 요청 시점의 열린 세션을 그때그때 훑는다는 뜻입니다. 정렬 결과가 `chomu` → `chomu2`인 것도 자연 순서와 일치합니다. 한쪽이 다른 쪽의 접두사이면 짧은 쪽이 앞에 옵니다.
 
 </details>
+
+### Lv16. 낙관적 락
+- [x] `WorldTrialSite`의 `revision` 필드를 JPA가 관리하는 버전 필드로 설정합니다. 버전 값을 직접 증가시키는 코드는 작성하지 않습니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 버전 필드 지정
+
+```java
+@Version
+private long revision;
+```
+
+* 필드에 `@Version`을 붙이는 것 외에 추가 코드는 없음 — 값 증가와 비교는 전적으로 Hibernate가 수행
+* UPDATE 시 `where id = ? and revision = ?` 조건이 붙고, 갱신된 행이 0건이면 다른 트랜잭션이 먼저 커밋한 것으로 판단해 `OptimisticLockException`(Hibernate의 `StaleObjectStateException`)을 발생시킴
+* 값을 직접 올리면 Hibernate가 기대하는 버전과 어긋나 정상 저장까지 실패하므로, `revision`을 참조하는 코드는 이 선언 한 줄뿐
+
+---
+
+2. 비관적 락을 쓰지 않는 이유
+* 충돌이 드물게 일어나는 상황에서는 매 저장마다 행을 잠그는 대신, 충돌이 실제로 발생했을 때만 거절하는 편이 경합 비용이 낮음
+* 트라이얼 사이트 저장은 같은 행을 두 트랜잭션이 동시에 건드리는 일이 흔치 않으므로 낙관적 락이 적합
+
+ [WorldTrialSite.java 바로가기](./src/main/java/com/gameexpert/trial/entity/WorldTrialSite.java)
+
+</details>
+
+- [x] 테스트 확인: `OptimisticLockTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 같은 버전을 읽은 두 저장 중 하나만 커밋되고, 충돌한 트랜잭션의 다른 행 변경도 함께 롤백되어야 합니다. 서로 다른 월드의 독립된 저장은 모두 성공해야 합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+확인해야 할 세 가지를 테스트가 각각 담당합니다.
+
+| 확인 항목 | 테스트 | 결과 |
+|---|---|---|
+| 같은 버전을 읽은 두 저장 중 하나만 커밋 | `staleTrialSnapshotMustNotOverwriteCommittedProgress` | 통과 |
+| 충돌한 트랜잭션의 다른 행 변경도 함께 롤백 | `conflictingBatchRollsBackOtherRows` | 통과 |
+| 서로 다른 월드의 독립 저장은 모두 성공 | `independentWorldsCanBothCommit` | 통과 |
+
+`@Version`이 실제로 동작해서 통과한 것인지 확인하기 위해, 애너테이션만 제거하고 같은 테스트를 다시 실행해 결과를 비교했습니다.
+
+| 상태 | 실행 결과 | 실패한 테스트 |
+|---|---|---|
+| `@Version` 적용 | tests=3, failures=0 | 없음 |
+| `@Version` 제거 | tests=3, **failures=2** | 위 표의 1번, 2번 |
+
+충돌을 검사하는 두 테스트만 깨지고, 서로 다른 월드를 저장하는 세 번째 테스트는 애너테이션 없이도 통과했습니다. 낙관적 락이 **충돌하는 저장만 거절하고 독립적인 저장은 막지 않는다**는 것이 이 차이로 확인됩니다.
+
+</details>

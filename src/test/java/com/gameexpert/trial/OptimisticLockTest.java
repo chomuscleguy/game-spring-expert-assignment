@@ -1,8 +1,5 @@
 package com.gameexpert.trial;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-
 import com.gameexpert.engine.trial.TrialSpawnerRuntime;
 import com.gameexpert.engine.trial.persistence.TrialWorldStatePersistence;
 import com.gameexpert.trial.entity.WorldTrialSite;
@@ -10,13 +7,6 @@ import com.gameexpert.trial.repository.WorldTrialSiteRepository;
 import com.gameexpert.trial.service.TrialPersistenceService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.OptimisticLockException;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import org.hibernate.SessionFactory;
 import org.hibernate.StaleObjectStateException;
 import org.hibernate.cfg.Configuration;
@@ -28,6 +18,13 @@ import org.springframework.data.jpa.repository.support.JpaRepositoryFactory;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.SharedEntityManagerCreator;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 class OptimisticLockTest {
     private SessionFactory factory;
@@ -57,7 +54,7 @@ class OptimisticLockTest {
         }
     }
 
-    // @Test
+    @Test
     void staleTrialSnapshotMustNotOverwriteCommittedProgress() throws Exception {
         CountDownLatch staleSnapshotLoaded = new CountDownLatch(1);
         CountDownLatch freshProgressCommitted = new CountDownLatch(1);
@@ -101,7 +98,7 @@ class OptimisticLockTest {
     }
 
 
-    // @Test
+    @Test
     void conflictingBatchRollsBackOtherRows() throws Exception {
         transactions.executeWithoutResult(status -> service.saveWorld(1L,
                 List.of(snapshot(1L, 0), snapshot(2L, 0))));
@@ -134,7 +131,7 @@ class OptimisticLockTest {
         }
     }
 
-    // @Test
+    @Test
     void independentWorldsCanBothCommit() throws Exception {
         transactions.executeWithoutResult(status -> service.saveWorld(2L, List.of(snapshot(0))));
         CountDownLatch loaded = new CountDownLatch(1);
