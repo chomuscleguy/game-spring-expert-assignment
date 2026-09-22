@@ -1680,3 +1680,120 @@ build/reports/tests/test/index.html
 TTL 검사에서 상한이 5초인 것은 `Duration.ofSeconds(5)`로 설정한 값이고, 하한이 0이 아니라 1ms인 것은 **만료 시각이 실제로 설정되었는지**를 확인하기 위함입니다. TTL을 설정하지 않으면 `getExpire()`가 `-1`을 반환해 이 범위를 벗어납니다.
 
 </details>
+
+### Lv19. Redis Lua로 채팅 전송 횟수 제한
+- [x] 수정 전에 제공 테스트를 실행해, 동시 요청이 5건을 초과해 통과하는 실패를 확인합니다.
+- [x] `allow(playerId)`에서 Lua Script를 실행합니다. 현재 횟수가 5 미만이면 횟수를 증가시키고, 5 이상이면 거절합니다.
+- [x] 처음 허용할 때만 Redis 키에 10초 만료 시간을 설정하고, 이후 요청에서는 연장하지 않습니다.
+- [x] 기존 플레이어별 Redis 키를 그대로 사용합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 수정 전 문제 확인
+기존 구현은 횟수를 읽고, 판단하고, 증가시키는 세 단계가 각각 별도의 Redis 왕복이었습니다.
+
+```java
+String value = redisTemplate.opsForValue().get(key);
+int count = value == null ? 0 : Integer.parseInt(value);
+if (count >= 5) {
+    return false;
+}
+Long updated = redisTemplate.opsForValue().increment(key);
+```
+
+읽기와 증가 사이에 다른 요청이 끼어들 수 있으므로, 여러 요청이 같은 값을 읽으면 모두 한도 검사를 통과합니다. 제공 테스트는 12개 스레드가 **읽기를 마친 시점에 서로를 기다렸다가** 동시에 다음 명령으로 넘어가도록 만들어 이 틈을 드러냅니다.
+
+```
+expected: 5L
+ but was: 12L
+```
+
+---
+
+2. Lua Script로 한 덩어리 만들기
+
+```java
+private static final RedisScript<Long> ALLOW_SCRIPT = new DefaultRedisScript<>("""
+        local count = tonumber(redis.call('GET', KEYS[1]) or '0')
+        if count >= tonumber(ARGV[1]) then
+            return 0
+        end
+        if redis.call('INCR', KEYS[1]) == 1 then
+            redis.call('EXPIRE', KEYS[1], ARGV[2])
+        end
+        return 1
+        """, Long.class);
+```
+
+* Redis는 스크립트를 **원자적으로 실행**하므로 실행 도중 다른 클라이언트의 명령이 끼어들지 못함 — 읽기·판단·증가가 하나의 단위가 되어 경쟁 상태가 사라짐
+* `GET`이 없는 키에 대해 Lua에서 `false`를 반환하므로 `or '0'`으로 기본값을 주고 `tonumber`로 변환
+* 스크립트를 `static final`로 두어 SHA1 캐시를 재사용 — 매 호출마다 새로 만들면 스크립트 전문을 계속 전송하게 됨
+* Lua에서 `false`는 Redis 응답으로 `nil`이 되어 Java에서 `null`로 전달되므로, 허용 여부를 불리언 대신 `1`/`0` 숫자로 반환
+
+---
+
+3. 첫 요청에서만 만료 설정
+* `INCR`은 증가 **후**의 값을 반환하므로, 결과가 `1`이라는 것은 이번 요청으로 키가 새로 만들어졌다는 뜻 — 이때만 `EXPIRE`를 설정
+* 매 요청마다 `EXPIRE`를 걸면 채팅을 계속 보내는 동안 창이 끝없이 밀려 제한이 사실상 사라짐
+
+---
+
+4. 키 설계
+
+```java
+String key = "chat:limit:" + playerId;
+```
+
+* 플레이어 ID만으로 키를 만들므로 월드를 옮기거나 재접속해도 같은 한도를 공유하고, 서버 인스턴스별로 키가 나뉘지 않음
+* 한도와 창 길이는 Java 상수로 두고 `ARGV`로 전달 — `StringRedisTemplate`을 사용하므로 `String.valueOf()`로 문자열 변환이 필요
+
+ [ChatRateLimitService.java 바로가기](./src/main/java/com/gameexpert/chat/service/ChatRateLimitService.java)
+
+</details>
+
+- [x] 테스트 확인: Docker를 실행하고 `ChatRateLimitTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+| 테스트 | 확인하는 것 | 결과 |
+|---|---|---|
+| `allowsFiveMessagesAndRejectsSixth` | 5건 허용 후 6번째 거절, 다른 플레이어는 독립, 인스턴스가 달라도 한도 공유 | 통과 |
+| `subsequentMessagesMustNotExtendTheOriginalWindow` | 후속 요청이 최초 창을 연장하지 않는지 | 통과 |
+| `concurrentMessagesMustNotExceedFive` | 동시 12건 요청에서 정확히 5건만 허용되는지 | 통과 |
+| `acceptsMessagesAgainAfterTheWindowExpires` | 만료 후 다시 허용되는지 | 통과 |
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 동시 요청을 5건까지만 허용하는지, 후속 요청이 제한 시간을 연장하지 않는지 확인합니다. 만료 후에는 다시 허용하고, 다른 플레이어의 한도에는 영향을 주지 않아야 합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+같은 테스트를 수정 전후로 실행해 결과를 비교했습니다.
+
+| 구현 | 실행 결과 | 동시 12건 요청 중 허용된 수 |
+|---|---|---|
+| 읽기와 증가를 분리 | tests=4, **failures=1** | **12건** |
+| Lua Script로 통합 | tests=4, failures=0 | 5건 |
+
+동시성 테스트는 `opsForValue().get()` 호출을 가로채 12개 스레드를 읽기 직후에 모아 두는 방식으로 경쟁 상태를 재현합니다. Lua 버전은 `get()`을 호출하지 않고 스크립트 한 번으로 처리하므로 그 지점 자체가 존재하지 않으며, Redis가 스크립트를 직렬로 실행해 5건에서 정확히 끊습니다.
+
+나머지 세 가지 확인 항목도 각각 대응하는 테스트가 있습니다.
+
+| 확인 항목 | 테스트 |
+|---|---|
+| 후속 요청이 제한 시간을 연장하지 않음 | `subsequentMessagesMustNotExtendTheOriginalWindow` |
+| 만료 후 다시 허용 | `acceptsMessagesAgainAfterTheWindowExpires` |
+| 다른 플레이어 한도에 영향 없음 | `allowsFiveMessagesAndRejectsSixth` |
+
+</details>

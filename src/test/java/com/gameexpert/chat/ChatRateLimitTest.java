@@ -48,7 +48,7 @@ class ChatRateLimitTest {
         REDIS.stop();
     }
 
-    // @Test
+    @Test
     void allowsFiveMessagesAndRejectsSixth() {
         ChatRateLimitService service = new ChatRateLimitService(redisTemplate);
         List<Boolean> results = IntStream.range(0, 6)
@@ -65,7 +65,7 @@ class ChatRateLimitTest {
                 .isFalse();
     }
 
-    // @Test
+    @Test
     void subsequentMessagesMustNotExtendTheOriginalWindow() {
         String key = "chat:limit:401";
         redisTemplate.opsForValue().set(key, "1", Duration.ofSeconds(5));
@@ -77,7 +77,7 @@ class ChatRateLimitTest {
                 .isBetween(1L, 5_000L);
     }
 
-    // @Test
+    @Test
     void concurrentMessagesMustNotExceedFive() throws Exception {
         int requestCount = 12;
         String key = "chat:limit:201";
@@ -107,7 +107,7 @@ class ChatRateLimitTest {
         assertThat(redisTemplate.getExpire(key, TimeUnit.MILLISECONDS)).isBetween(1L, 10_000L);
     }
 
-    // @Test
+    @Test
     void acceptsMessagesAgainAfterTheWindowExpires() {
         ChatRateLimitService service = new ChatRateLimitService(redisTemplate);
         String key = "chat:limit:301";
