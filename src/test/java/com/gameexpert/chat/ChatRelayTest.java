@@ -21,12 +21,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Properties;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.*;
 
 class ChatRelayTest {
 
-    // @Test
+    @Test
     void enablesPubSubInApplicationProperties() throws Exception {
         Properties properties = new Properties();
         try (InputStream input = getClass().getResourceAsStream("/application.properties")) {
@@ -37,7 +38,7 @@ class ChatRelayTest {
                 "application.properties에서 Pub/Sub을 활성화합니다.");
     }
 
-    // @Test
+    @Test
     void publishesWorldIdAndMessageAsJson() {
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
         ObjectMapper mapper = new ObjectMapper();
@@ -55,7 +56,7 @@ class ChatRelayTest {
         verifyNoInteractions(sender);
     }
 
-    // @Test
+    @Test
     void receivedMessageIsSentLocallyWithoutPublishingAgain() {
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
         ObjectMapper mapper = new ObjectMapper();
@@ -74,7 +75,7 @@ class ChatRelayTest {
         verifyNoInteractions(redis);
     }
 
-    // @Test
+    @Test
     void bothServersReceiveOneMessageThroughRedis() throws Exception {
         try (GenericContainer<?> redis = new GenericContainer<>("redis:7-alpine")
                 .withExposedPorts(6379)) {

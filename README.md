@@ -1797,3 +1797,167 @@ build/reports/tests/test/index.html
 | 다른 플레이어 한도에 영향 없음 | `allowsFiveMessagesAndRejectsSixth` |
 
 </details>
+
+### Lv20. 멀티 서버
+- [x] `build.gradle`의 `webcraft-engine` 버전을 `2.2.6`으로 변경합니다.
+- [x] Docker Compose로 앱 서버 2개, MySQL 1개, Redis 1개를 실행하도록 구성합니다.
+- [x] `application.properties`에 `webcraft.chat.pubsub-enabled=true`를 추가합니다.
+- [x] `ChatRelay.publish()`에서 `worldId`와 `message`를 JSON으로 묶어 채널에 발행합니다.
+- [x] `ChatSubscriptionConfig`에서 `relay`를 채널의 수신 리스너로 등록합니다.
+- [x] `ChatRelay.onMessage()`에서 수신한 JSON을 `localChatSender.send()`로 전달합니다.
+
+<details>
+<summary><b>[자세히] </b></summary>
+
+1. 전달 경로
+
+```
+Alice(서버 A) 채팅
+      ↓
+ChatWsHandler → chatService.saveMessage()   ← DB 저장은 여기서 한 번만
+      ↓
+ChatDelivery.send()   pubsub-enabled=true 이면 로컬 전송 대신 발행
+      ↓
+ChatRelay.publish() ──→ Redis 채널 "webcraft:chat"
+                              │
+                  ┌───────────┴───────────┐
+                  ↓                       ↓
+          서버 A onMessage()       서버 B onMessage()
+                  ↓                       ↓
+        localChatSender.send()   localChatSender.send()
+```
+
+* 발행한 서버도 자기 채널을 구독하므로, 보낸 사람에게는 **로컬 전송이 아니라 수신 경로로** 메시지가 도착 — `publish()` 안에서 `localChatSender`를 함께 호출하면 같은 서버 참여자에게 두 번 전달됨
+* 저장은 발행 이전 단계에서 한 번만 일어나므로, 수신 측은 전송만 담당하고 다시 저장하거나 발행하지 않음
+
+---
+
+2. 발행
+
+```java
+public void publish(Long worldId, Object message) {
+    ObjectNode envelope = objectMapper.createObjectNode();
+    envelope.put(FIELD_WORLD_ID, worldId);
+    envelope.set(FIELD_MESSAGE, objectMapper.valueToTree(message));
+
+    redisTemplate.convertAndSend(CHANNEL, objectMapper.writeValueAsString(envelope));
+}
+```
+
+* 채널은 하나만 쓰고 월드 구분은 봉투 안의 `worldId`로 처리 — 월드마다 채널을 만들면 구독 관리가 복잡해짐
+* 필드 이름을 상수로 분리 — 발행과 수신이 같은 문자열을 써야 하는데, `path()`는 없는 키에 예외 대신 빈 노드를 반환하므로 오타가 나도 조용히 어긋남
+
+---
+
+3. 구독과 수신
+
+```java
+container.addMessageListener(relay, new ChannelTopic(ChatRelay.CHANNEL));
+```
+
+```java
+@Override
+public void onMessage(Message message, byte[] pattern) {
+    JsonNode envelope = objectMapper.readTree(message.getBody());
+
+    localChatSender.send(envelope.path(FIELD_WORLD_ID).asLong(), envelope.path(FIELD_MESSAGE));
+}
+```
+
+* `message.getBody()`는 `byte[]`이며 Jackson이 UTF-8로 그대로 읽음
+* 꺼낸 `JsonNode`를 변환 없이 그대로 전달 — `ChatResponse`로 역직렬화하면 필드가 하나라도 어긋날 때 깨지고, 중계 구간이 응답 형식을 알아야 할 이유도 없음
+* `ChatSubscriptionConfig`는 `@ConditionalOnProperty`가 걸려 있어 `pubsub-enabled=true`일 때만 구독 컨테이너가 생성됨
+
+ [ChatRelay.java 바로가기](./src/main/java/com/gameexpert/chat/relay/ChatRelay.java) · [ChatSubscriptionConfig.java 바로가기](./src/main/java/com/gameexpert/chat/relay/ChatSubscriptionConfig.java)
+
+---
+
+4. Compose 구성
+앱 서비스를 하나 더 추가하고, 세 가지만 다르게 지정했습니다.
+
+| 항목 | `app` | `app-tmp` |
+|---|---|---|
+| `container_name` | `expert-assignment-app` | `expert-assignment-tmp-app` |
+| 호스트 포트 | `8080` | `8081` |
+| 컨테이너 내부 포트 | `8080` | `8080` |
+
+DB 계정, Redis 접속 정보, `depends_on` 조건은 동일합니다. 같은 MySQL을 봐야 채팅 내역과 플레이어·월드가 공유되고, 같은 Redis를 봐야 같은 채널을 구독하기 때문입니다.
+
+ [docker-compose.yaml 바로가기](./docker-compose.yaml)
+
+---
+
+5. 두 번째 서버 기동 실패 해결
+엔진 `2.2.6`에서 두 번째 서버를 올리자 기동에 실패했습니다.
+
+```
+java.lang.IllegalStateException: Cannot initialize shared-world write fencing
+Caused by: Another server is already running on this database.
+           Several servers need the MySQL parameter log_bin_trust_function_creators=1.
+```
+
+엔진의 `WorldAuthority`가 여러 서버가 같은 DB에 쓰는 것을 통제하기 위해 MySQL 함수를 생성하는데, 바이너리 로그가 켜진 상태에서는 기본적으로 차단됩니다. `db` 서비스에 파라미터를 추가해 해결했습니다.
+
+```yaml
+  db:
+    image: mysql:8.0
+    command: --log-bin-trust-function-creators=1
+```
+
+`restart: always` 때문에 실패한 앱이 계속 재기동되어 포트는 열려 있으나 응답이 없는 상태(`ERR_EMPTY_RESPONSE`)가 되므로, 원인은 컨테이너 로그에서 확인해야 했습니다.
+
+</details>
+
+- [x] 테스트 확인: Docker를 실행하고 `ChatRelayTest.java`의 주석을 해제한 뒤 실행합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+.\gradlew test
+```
+
+| 테스트 | 확인하는 것 | 결과 |
+|---|---|---|
+| `enablesPubSubInApplicationProperties` | 설정으로 Pub/Sub이 활성화되어 있는지 | 통과 |
+| `publishesWorldIdAndMessageAsJson` | 봉투의 `worldId`·`message` 형식과 채널, 발행 시 로컬 전송을 하지 않는지 | 통과 |
+| `receivedMessageIsSentLocallyWithoutPublishingAgain` | 수신 시 전송만 하고 재발행하지 않는지 | 통과 |
+| `bothServersReceiveOneMessageThroughRedis` | 실제 Redis로 두 컨텍스트가 각각 한 번씩만 수신하는지 | 통과 |
+
+마지막 테스트는 Testcontainers로 Redis 하나를 띄우고 스프링 컨텍스트 두 개를 만들어 서버 두 대를 재현합니다. 한쪽에서 발행했을 때 양쪽의 `LocalChatSender`가 정확히 한 번씩 호출되고, 수신한 쪽은 `convertAndSend`를 호출하지 않는지(`never()`)까지 확인합니다.
+
+```Bash
+build/reports/tests/test/index.html
+```
+
+</details>
+
+- [x] 확인: 일반 창에서 서버 A에 `Alice`로, 시크릿 창에서 서버 B에 `Bob`으로 접속해 같은 월드에 입장합니다. 어느 쪽에서 보내든 채팅이 양쪽 화면에 한 번씩 표시되어야 합니다.
+
+<details>
+<summary><b>[자세히]</b></summary>
+
+```Bash
+docker compose up -d --build
+```
+
+| 창 | 접속 주소 | 서버 |
+|---|---|---|
+| 일반 창 | `http://localhost:8080` | `app` |
+| 시크릿 창 | `http://localhost:8081` | `app-tmp` |
+
+시크릿 창을 사용해 브라우저 세션을 분리하고, 서로 다른 닉네임으로 같은 월드에 입장했습니다. 어느 쪽에서 보내든 두 화면의 채팅창에 메시지가 한 번씩 표시되고, 한쪽이 다른 월드로 입장하면 서로의 채팅이 보이지 않습니다.
+
+**서버 A(8080) — `chomu`의 화면**
+
+![Lv20 서버 A 화면](./img/lv20_2_img.png)
+
+**서버 B(8081) — `chomu2`의 화면**
+
+![Lv20 서버 B 화면](./img/lv20_1_img.png)
+
+`chomu2`가 보낸 같은 메시지가 두 화면의 채팅창에 함께 표시됩니다. 주목할 점은 우측 상단 접속 인원이 **양쪽 모두 `1명`**이라는 것입니다. 두 사람이 서로 다른 서버에 접속해 있어 각 서버는 자기 연결만 세고, 상대의 캐릭터도 화면에 보이지 않습니다. 그럼에도 채팅만은 Redis 채널을 건너 전달되었습니다.
+
+> 이 단계에서 서버를 넘어 공유되는 것은 **채팅뿐**입니다. 월드 시뮬레이션은 서버마다 독립적으로 동작하므로 상대 서버에 접속한 플레이어의 캐릭터와 이동은 보이지 않으며, `onlineUsers` 응답도 명세에 따라 해당 서버의 접속자만 반환합니다. 채팅 내역·플레이어·월드는 같은 MySQL을, 채팅 전송 횟수 제한은 같은 Redis 키를 공유합니다.
+
+</details>
